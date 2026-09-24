@@ -13,16 +13,16 @@ function generarContrasena() {
         var tipoCaracter = Math.floor(Math.random() * 4);
         switch (tipoCaracter) {
             case 0:
-                contrasenaGenerada += mayusculas[Math.floor(Math.random() * mayusculas.length)];
+                contrasenaGenerada += mayusculas[aleatorio(0,mayusculas.length)];
                 break;
             case 1:
-                contrasenaGenerada += minusculas[Math.floor(Math.random() * minusculas.length)];
+                contrasenaGenerada += minusculas[aleatorio(0,minusculas.length)];
                 break;
             case 2:
-                contrasenaGenerada += numeros[Math.floor(Math.random() * numeros.length)];
+                contrasenaGenerada += numeros[aleatorio(0,numeros.length)];
                 break;
             case 3:
-                contrasenaGenerada += simbolos[Math.floor(Math.random() * simbolos.length)];
+                contrasenaGenerada += simbolos[aleatorio(0,simbolos.length)];
                 break;
         }
     }
