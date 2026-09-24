@@ -1,14 +1,32 @@
 var longitud = document.getElementById("longitud");
 
-var mayusculas[] = {"A","B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"};
-var minusculas[] = {"a","b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"};
-var numeros[] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
-var simbolos[] = {"!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "-", "_", "=", "+", "[", "]", "{", "}", ";", ":", "'", '"', ",", ".", "<", ">", "/", "?", "|", "\\"};
+var mayusculas = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+var minusculas = "abcdefghijklmnopqrstuvwxyz";
+var numeros = "0123456789";
+var simbolos = "!@#$%^&*()-+";
 
-var contrasenaGenerada = "";
+var contrasenaGenerada;
 
-for (var i = 0; i < longitud.value; i++) {
-    math.random() < 0.5 ? contrasenaGenerada += mayusculas[Math.floor(Math.random() * mayusculas.length)] : contrasenaGenerada += minusculas[Math.floor(Math.random() * minusculas.length)];
+function generarContrasena() {
+    contrasenaGenerada = "";
+    for (var i = 0; i < longitud.value; i++) {
+        var tipoCaracter = Math.floor(Math.random() * 4);
+        switch (tipoCaracter) {
+            case 0:
+                contrasenaGenerada += mayusculas[aleatorio(0,mayusculas.length)];
+                break;
+            case 1:
+                contrasenaGenerada += minusculas[aleatorio(0,minusculas.length)];
+                break;
+            case 2:
+                contrasenaGenerada += numeros[aleatorio(0,numeros.length)];
+                break;
+            case 3:
+                contrasenaGenerada += simbolos[aleatorio(0,simbolos.length)];
+                break;
+        }
+    }
+
+    console.log("Contraseña generada: " + contrasenaGenerada);
+    return contrasenaGenerada;
 }
-
-console.log("Contraseña generada: " + contrasenaGenerada);
