@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
-// Mismos conjuntos y misma lógica que generadorContraseña.js
+// Mismos conjuntos que generadorContraseña.js
 const mayusculas = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const minusculas = 'abcdefghijklmnopqrstuvwxyz';
 const numeros = '0123456789';
@@ -13,24 +13,39 @@ const MAX_LONGITUD = 128;
 const longitud = ref(16);
 const contrasenaGenerada = ref('');
 
+// Filtros: qué tipos de carácter entran en la contraseña
+type TipoConjunto = 'minusculas' | 'mayusculas' | 'numeros' | 'simbolos';
+
+const CONJUNTOS: { tipo: TipoConjunto; nombre: string; caracteres: string; muestra: string }[] = [
+  { tipo: 'minusculas', nombre: 'Minúsculas', caracteres: minusculas, muestra: 'a b c d e f g …' },
+  { tipo: 'mayusculas', nombre: 'Mayúsculas', caracteres: mayusculas, muestra: 'A B C D E F G …' },
+  { tipo: 'numeros', nombre: 'Números', caracteres: numeros, muestra: '0 1 2 3 4 5 6 7 8 9' },
+  { tipo: 'simbolos', nombre: 'Símbolos', caracteres: simbolos, muestra: '! @ # $ % ^ & * ( ) - +' },
+];
+
+const usar = ref<Record<TipoConjunto, boolean>>({
+  minusculas: true,
+  mayusculas: true,
+  numeros: true,
+  simbolos: true,
+});
+
+const conjuntosActivos = computed(() => CONJUNTOS.filter((c) => usar.value[c.tipo]).map((c) => c.caracteres));
+
+// Siempre debe quedar al menos un tipo activo
+function alternarConjunto(tipo: TipoConjunto) {
+  if (usar.value[tipo] && conjuntosActivos.value.length === 1) return;
+  usar.value[tipo] = !usar.value[tipo];
+  generarContrasena();
+}
+
+// Para cada carácter se elige primero un tipo activo y luego un carácter de ese tipo
 function generarContrasena() {
+  const activos = conjuntosActivos.value;
   let resultado = '';
   for (let i = 0; i < longitud.value; i++) {
-    const tipoCaracter = Math.floor(Math.random() * 4);
-    switch (tipoCaracter) {
-      case 0:
-        resultado += mayusculas[Math.floor(Math.random() * mayusculas.length)];
-        break;
-      case 1:
-        resultado += minusculas[Math.floor(Math.random() * minusculas.length)];
-        break;
-      case 2:
-        resultado += numeros[Math.floor(Math.random() * numeros.length)];
-        break;
-      case 3:
-        resultado += simbolos[Math.floor(Math.random() * simbolos.length)];
-        break;
-    }
+    const conjunto = activos[Math.floor(Math.random() * activos.length)]!;
+    resultado += conjunto[Math.floor(Math.random() * conjunto.length)];
   }
   contrasenaGenerada.value = resultado;
   return resultado;
@@ -60,13 +75,60 @@ const caracteres = computed(() =>
   })
 );
 
-// Entropía por carácter: primero se elige el tipo (1/4) y luego un carácter del conjunto
-const BITS_POR_CARACTER =
-  2 + [mayusculas, minusculas, numeros, simbolos].reduce((acc, c) => acc + Math.log2(c.length) / 4, 0);
+// Entropía por carácter: primero se elige el tipo (1/n) y luego un carácter del conjunto
+const bitsPorCaracter = computed(() => {
+  const activos = conjuntosActivos.value;
+  return Math.log2(activos.length) + activos.reduce((acc, c) => acc + Math.log2(c.length) / activos.length, 0);
+});
 
-const entropia = computed(() => Math.round(longitud.value * BITS_POR_CARACTER));
+const entropia = computed(() => Math.round(longitud.value * bitsPorCaracter.value));
+
+// Niveles que devuelve el backend (obtenerNivel) y cómo se pintan
+const NIVELES_SERVIDOR: Record<string, { n: number; etiqueta: string; clase: string; tiempo: string }> = {
+  'Débil': { n: 1, etiqueta: 'Débil', clase: 'debil', tiempo: 'Minutos u horas' },
+  'Media': { n: 2, etiqueta: 'Media', clase: 'aceptable', tiempo: 'Días o semanas' },
+  'Fuerte': { n: 3, etiqueta: 'Fuerte', clase: 'fuerte', tiempo: 'Varios años' },
+  'Muy fuerte': { n: 4, etiqueta: 'Muy fuerte', clase: 'muy-fuerte', tiempo: 'Siglos mediante fuerza bruta' },
+};
+
+const nivelServidor = ref<string | null>(null);
+let evaluarTimer: ReturnType<typeof setTimeout> | undefined;
+let ultimaPeticion = 0;
+
+async function evaluarEnServidor(contrasena: string) {
+  const peticion = ++ultimaPeticion;
+  try {
+    const respuesta = await fetch('/api/nivelSeguridad/comprobar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contrasena,
+        usarMayusculas: usar.value.mayusculas,
+        usarMinusculas: usar.value.minusculas,
+        usarNumeros: usar.value.numeros,
+        usarSimbolos: usar.value.simbolos,
+      }),
+    });
+    if (!respuesta.ok) throw new Error(`Error ${respuesta.status}`);
+    const datos = (await respuesta.json()) as { valida: boolean; nivelSeguridad: string };
+    // Ignora respuestas de contraseñas antiguas que lleguen tarde
+    if (peticion === ultimaPeticion) nivelServidor.value = datos.nivelSeguridad;
+  } catch {
+    // Si la API no responde, se usa el cálculo local por entropía
+    if (peticion === ultimaPeticion) nivelServidor.value = null;
+  }
+}
+
+// Espera 300 ms sin cambios para no lanzar una petición por cada movimiento del slider
+watch(contrasenaGenerada, (contrasena) => {
+  clearTimeout(evaluarTimer);
+  evaluarTimer = setTimeout(() => evaluarEnServidor(contrasena), 300);
+});
 
 const nivel = computed(() => {
+  const servidor = nivelServidor.value ? NIVELES_SERVIDOR[nivelServidor.value] : undefined;
+  if (servidor) return servidor;
+
   const e = entropia.value;
   if (e >= 80) return { n: 4, etiqueta: 'Muy fuerte', clase: 'muy-fuerte', tiempo: 'Siglos mediante fuerza bruta' };
   if (e >= 60) return { n: 3, etiqueta: 'Fuerte', clase: 'fuerte', tiempo: 'Varios años' };
@@ -120,6 +182,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown);
   clearTimeout(toastTimer);
+  clearTimeout(evaluarTimer);
 });
 </script>
 
@@ -239,10 +302,27 @@ onBeforeUnmount(() => {
         <div class="conjuntos">
           <span class="titulo-seccion">Caracteres que se usan</span>
           <ul>
-            <li><span>Minúsculas</span><code>a b c d e f g …</code></li>
-            <li><span>Mayúsculas</span><code>A B C D E F G …</code></li>
-            <li><span>Números</span><code>0 1 2 3 4 5 6 7 8 9</code></li>
-            <li><span>Símbolos</span><code>! @ # $ % ^ &amp; * ( ) - +</code></li>
+            <li v-for="c in CONJUNTOS" :key="c.tipo">
+              <button
+                type="button"
+                class="filtro"
+                :class="{ activo: usar[c.tipo] }"
+                :aria-pressed="usar[c.tipo]"
+                :disabled="usar[c.tipo] && conjuntosActivos.length === 1"
+                :title="usar[c.tipo] && conjuntosActivos.length === 1 ? 'Debe quedar al menos un tipo' : undefined"
+                @click="alternarConjunto(c.tipo)"
+              >
+                <span class="filtro-cabecera">
+                  <span>{{ c.nombre }}</span>
+                  <span class="check" aria-hidden="true">
+                    <svg v-if="usar[c.tipo]" viewBox="0 0 24 24" width="14" height="14">
+                      <path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2Z" />
+                    </svg>
+                  </span>
+                </span>
+                <code>{{ c.muestra }}</code>
+              </button>
+            </li>
           </ul>
         </div>
       </div>
@@ -519,15 +599,53 @@ input:focus-visible {
 }
 .conjuntos li {
   display: flex;
-  flex-direction: column;
-  padding: 0.5rem;
-  border-radius: 0.5rem;
-  background: var(--subtle);
 }
-.conjuntos li span { font-weight: 500; }
 .conjuntos code {
   font-size: 13px;
   color: var(--ink-muted);
+}
+
+/* Filtros de tipo de carácter */
+.filtro {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  border: 2px solid transparent;
+  background: var(--subtle);
+  color: var(--ink);
+  text-align: left;
+  opacity: 0.55;
+  transition: background 0.2s, border-color 0.2s, opacity 0.2s;
+}
+.filtro:hover:not(:disabled) { background: var(--muted); }
+.filtro.activo {
+  border-color: var(--primary);
+  opacity: 1;
+}
+.filtro:not(.activo) code { text-decoration: line-through; }
+.filtro:disabled { cursor: not-allowed; }
+
+.filtro-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 500;
+}
+.check {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1.5px solid var(--ink-muted);
+}
+.filtro.activo .check {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
 }
 
 .nota p { margin: 0; line-height: 1.6; }
@@ -572,6 +690,6 @@ input:focus-visible {
   .conjuntos ul { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .btn-icono svg, .toast, .medidor span { transition: none; }
+  .btn-icono svg, .toast, .medidor span, .filtro { transition: none; }
 }
 </style>

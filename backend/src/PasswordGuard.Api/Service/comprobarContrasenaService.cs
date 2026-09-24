@@ -217,5 +217,12 @@ namespace passwordGuard.Api.Service
                 return "Muy fuerte";
             }
         }
+
+        public string evaluarContrasena(string contrasena)
+        {
+            int puntuacion = calcularPuntuacion(contrasena);
+            string nivel = obtenerNivel(puntuacion);
+            return nivel;
+        }
     }
 }
