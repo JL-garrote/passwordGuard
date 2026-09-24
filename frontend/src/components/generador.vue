@@ -260,24 +260,6 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .generador {
-  --primary: #2f4fb8;
-  --primary-strong: #0b35a0;
-  --on-primary: #ffffff;
-  --secondary: #006a68;
-  --secondary-container: #91f0ed;
-  --on-secondary-container: #00504e;
-  --tertiary: #495969;
-  --tertiary-container: #d3e4f8;
-  --error: #ba1a1a;
-  --error-container: #ffdad6;
-  --on-error-container: #93000a;
-  --ink: #171c1f;
-  --ink-muted: #444653;
-  --card: #ffffff;
-  --subtle: #f0f4f8;
-  --surface: #eaeef2;
-  --muted: #dfe3e7;
-
   grid-column: 1 / -1; /* ocupa todo el ancho aunque #app sea una rejilla */
   width: 100%;
   max-width: 1040px;
@@ -290,28 +272,6 @@ onBeforeUnmount(() => {
   font-family: 'IBM Plex Sans', system-ui, sans-serif;
   font-size: 14px;
   line-height: 20px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .generador {
-    --primary: #b7c4ff;
-    --primary-strong: #dce1ff;
-    --on-primary: #001551;
-    --secondary: #77d6d3;
-    --secondary-container: #00504e;
-    --on-secondary-container: #94f2f0;
-    --tertiary: #b8c8dc;
-    --tertiary-container: #394858;
-    --error: #ffb4ab;
-    --error-container: #93000a;
-    --on-error-container: #ffdad6;
-    --ink: #dfe3e7;
-    --ink-muted: #c4c5d5;
-    --card: #1d2226;
-    --subtle: #171c1f;
-    --surface: #2c3134;
-    --muted: #3a3f43;
-  }
 }
 
 .mono,
