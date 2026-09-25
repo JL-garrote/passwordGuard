@@ -161,17 +161,70 @@ async function consultarFiltraciones(valor: string) {
   }
 }
 
+// Consejos con IA: el backend solo envía a Gemini la estructura anónima (tipos y longitudes), nunca la contraseña
+type ConsejoIA = { titulo: string; texto: string };
+
+// Se muestran si la IA no está disponible
+const CONSEJOS_GENERALES: ConsejoIA[] = [
+  { titulo: 'Crea una frase de contraseña', texto: 'Usa 4 o más palabras sin relación entre sí (ej. piano-reloj-salto-arena).' },
+  { titulo: 'Evita años y fechas', texto: 'Los años recientes y los cumpleaños son lo primero que prueba el software de ataque.' },
+  { titulo: 'Intercala símbolos', texto: 'Un símbolo en medio de la contraseña es mucho más difícil de adivinar que uno al final.' },
+];
+
+const NOMBRES_SEGMENTO: Record<string, string> = { palabra: 'Palabra', numero: 'Número', simbolo: 'Símbolo' };
+
+const segmentosIA = ref<{ tipo: string; longitud: number }[]>([]);
+const consejosIA = ref<ConsejoIA[] | null>(null);
+const estadoConsejos = ref<'inactivo' | 'cargando' | 'error' | 'listo'>('inactivo');
+const consejosMostrados = computed(() => consejosIA.value ?? CONSEJOS_GENERALES);
+let consejosTimer: ReturnType<typeof setTimeout> | undefined;
+let ultimaConsultaConsejos = 0;
+
+// "palabra(9) numero(4) simbolo(1) longitud: 14" -> [{ tipo: 'palabra', longitud: 9 }, ...]
+function leerEstructura(patrones: string) {
+  return [...patrones.matchAll(/(\p{L}+)\((\d+)\)/gu)].map((m) => ({ tipo: m[1] ?? '', longitud: Number(m[2]) }));
+}
+
+async function consultarConsejos(valor: string) {
+  const consulta = ++ultimaConsultaConsejos;
+  try {
+    const respuesta = await fetch('/api/nivelSeguridad/consejos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contrasena: valor }),
+    });
+    if (!respuesta.ok) throw new Error(`Error ${respuesta.status}`);
+    const datos = (await respuesta.json()) as { patrones: string; consejos: ConsejoIA[] | null };
+    // Ignora respuestas de contraseñas antiguas que lleguen tarde
+    if (consulta !== ultimaConsultaConsejos) return;
+    segmentosIA.value = leerEstructura(datos.patrones);
+    // Si Gemini falla, el backend devuelve la estructura sin consejos
+    consejosIA.value = datos.consejos?.length ? datos.consejos : null;
+    estadoConsejos.value = consejosIA.value ? 'listo' : 'error';
+  } catch {
+    if (consulta !== ultimaConsultaConsejos) return;
+    consejosIA.value = null;
+    estadoConsejos.value = 'error';
+  }
+}
+
 // Espera 300 ms sin cambios para no lanzar una petición por cada tecla
+// (1,2 s para la IA, porque cada llamada cuesta dinero y tarda más)
 watch(contrasena, (valor) => {
   clearTimeout(evaluarTimer);
+  clearTimeout(consejosTimer);
   if (!valor) {
     ultimaPeticion++;
     ultimaConsultaFiltraciones++;
     ultimaConsultaComun++;
+    ultimaConsultaConsejos++;
     nivelServidor.value = null;
     filtraciones.value = null;
     estadoFiltraciones.value = 'listo';
     esComun.value = null;
+    segmentosIA.value = [];
+    consejosIA.value = null;
+    estadoConsejos.value = 'inactivo';
     return;
   }
   evaluarTimer = setTimeout(() => {
@@ -179,6 +232,8 @@ watch(contrasena, (valor) => {
     consultarFiltraciones(valor);
     consultarComun(valor);
   }, 300);
+  estadoConsejos.value = 'cargando';
+  consejosTimer = setTimeout(() => consultarConsejos(valor), 1200);
 });
 
 const nivel = computed(() => {
@@ -227,7 +282,10 @@ const chips = computed(() => {
   ] as { estado: 'ok' | 'aviso' | 'mal'; texto: string; detalle?: string }[];
 });
 
-onBeforeUnmount(() => clearTimeout(evaluarTimer));
+onBeforeUnmount(() => {
+  clearTimeout(evaluarTimer);
+  clearTimeout(consejosTimer);
+});
 </script>
 
 <template>
@@ -438,40 +496,54 @@ onBeforeUnmount(() => clearTimeout(evaluarTimer));
             </span>
             <div>
               <h2>Patrones y consejos</h2>
-              <p class="texto-suave">Detección de palabras, fechas y sustituciones leet</p>
+              <p class="texto-suave">Estructura anónima de la contraseña y consejos generados con IA</p>
             </div>
           </div>
         </div>
 
-        <div class="alerta pendiente">
+        <div v-if="segmentosIA.length" class="estructura">
+          <span class="etiqueta-mayus">Estructura detectada</span>
+          <div class="estructura-segmentos">
+            <template v-for="(s, i) in segmentosIA" :key="i">
+              <span v-if="i > 0" class="texto-suave">+</span>
+              <span class="segmento" :class="`segmento-${s.tipo}`">
+                {{ NOMBRES_SEGMENTO[s.tipo] ?? s.tipo }} · {{ s.longitud }}
+              </span>
+            </template>
+          </div>
+        </div>
+
+        <div v-if="estadoConsejos === 'cargando'" class="alerta pendiente" aria-live="polite">
+          <span class="alerta-icono">
+            <span class="spinner" aria-hidden="true"></span>
+          </span>
+          <div>
+            <div class="alerta-titulo">Generando consejos con IA…</div>
+            <p class="texto-suave">Gemini solo recibe la estructura (tipos y longitudes), nunca la contraseña.</p>
+          </div>
+        </div>
+
+        <div v-else-if="estadoConsejos === 'error'" class="alerta pendiente">
           <span class="alerta-icono">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" :d="ICONOS.info" /></svg>
           </span>
           <div>
-            <div class="alerta-titulo">Próximamente</div>
-            <p class="texto-suave">
-              Pronto detectaremos estructuras predecibles como <em>Palabra + Año + Símbolo</em>, el patrón que más
-              prueban herramientas como Hashcat o John the Ripper.
-            </p>
+            <div class="alerta-titulo">No se han podido generar consejos con IA</div>
+            <p class="texto-suave">Mientras tanto, estos consejos generales te pueden ayudar.</p>
           </div>
         </div>
 
-        <div class="consejos">
-          <div class="consejo">
-            <span class="numero">1</span>
-            <h3>Crea una frase de contraseña</h3>
-            <p class="texto-suave">Usa 4 o más palabras sin relación entre sí (ej. <em>piano-reloj-salto-arena</em>).</p>
+        <div class="consejos" :class="{ atenuados: estadoConsejos === 'cargando' }">
+          <div v-for="(c, i) in consejosMostrados" :key="c.titulo" class="consejo">
+            <span class="numero">{{ i + 1 }}</span>
+            <h3>{{ c.titulo }}</h3>
+            <p class="texto-suave">{{ c.texto }}</p>
           </div>
-          <div class="consejo">
-            <span class="numero">2</span>
-            <h3>Evita años y fechas</h3>
-            <p class="texto-suave">Los años recientes y los cumpleaños son lo primero que prueba el software de ataque.</p>
-          </div>
-          <div class="consejo">
-            <span class="numero">3</span>
-            <h3>Intercala símbolos</h3>
-            <p class="texto-suave">Un símbolo en medio de la contraseña es mucho más difícil de adivinar que uno al final.</p>
-          </div>
+        </div>
+
+        <div class="nota">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" :d="ICONOS.candado" /></svg>
+          <span>A la IA (Gemini) solo le enviamos la estructura anónima, por ejemplo «Palabra · 9 + Número · 4», nunca la contraseña.</span>
         </div>
 
         <div class="llamada">
@@ -966,6 +1038,46 @@ p {
   grid-template-columns: repeat(3, 1fr);
   gap: 0.5rem;
 }
+.consejos.atenuados {
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+/* Estructura enviada a la IA */
+.estructura {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: var(--subtle);
+}
+.estructura-segmentos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+}
+.segmento {
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.segmento-palabra {
+  color: var(--primary);
+}
+.segmento-numero {
+  color: var(--secondary);
+}
+.segmento-simbolo {
+  color: var(--error);
+}
+
 .consejo {
   padding: 1rem;
   border-radius: 0.75rem;
