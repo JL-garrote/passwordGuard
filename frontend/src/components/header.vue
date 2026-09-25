@@ -1,4 +1,9 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+export type Seccion = 'generar' | 'analizar';
+
+defineProps<{ seccion: Seccion }>();
+const emit = defineEmits<{ cambiar: [seccion: Seccion] }>();
+</script>
 
 <template>
   <header class="header">
@@ -19,8 +24,24 @@
 
       <!-- Navegación -->
       <nav class="nav" aria-label="Secciones">
-        <a href="/" class="nav-item activo" aria-current="page">Generar</a>
-        <span class="nav-item deshabilitado" aria-disabled="true" title="Próximamente">Analizar</span>
+        <button
+          type="button"
+          class="nav-item"
+          :class="{ activo: seccion === 'generar' }"
+          :aria-current="seccion === 'generar' ? 'page' : undefined"
+          @click="emit('cambiar', 'generar')"
+        >
+          Generar
+        </button>
+        <button
+          type="button"
+          class="nav-item"
+          :class="{ activo: seccion === 'analizar' }"
+          :aria-current="seccion === 'analizar' ? 'page' : undefined"
+          @click="emit('cambiar', 'analizar')"
+        >
+          Analizar
+        </button>
       </nav>
 
       <!-- Distintivo de privacidad -->
@@ -105,7 +126,11 @@
 }
 .nav-item {
   padding: 0.375rem 1rem;
+  border: none;
   border-radius: 0.5rem;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
   font-size: 14px;
   line-height: 20px;
   font-weight: 600;
@@ -118,9 +143,8 @@
   color: var(--on-primary);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
 }
-.nav-item.deshabilitado {
-  opacity: 0.55;
-  cursor: not-allowed;
+.nav-item:not(.activo):hover {
+  color: var(--ink);
 }
 .nav-item:focus-visible,
 .marca:focus-visible {

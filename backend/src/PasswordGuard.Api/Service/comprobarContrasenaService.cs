@@ -4,6 +4,13 @@ namespace passwordGuard.Api.Service
     {
         bool longitudValida = false;
 
+        private readonly contrasenasComunesService _contrasenasComunesService;
+
+        public comprobarContrasenaService(contrasenasComunesService contrasenasComunesService)
+        {
+            _contrasenasComunesService = contrasenasComunesService;
+        }
+
 
         public bool comprobarLongitud(string contrasena)
         {
@@ -158,6 +165,12 @@ namespace passwordGuard.Api.Service
        
         public int calcularPuntuacion(string contrasena)
         {
+            
+            if (_contrasenasComunesService.esContrasenaComun(contrasena))
+            {
+                return 0;
+            }
+
             int puntuacion = 0;
 
             if (contrasena.Length >= 8)
