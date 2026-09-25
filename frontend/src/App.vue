@@ -1,46 +1,30 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+import AppHeader, { type Seccion } from './components/header.vue'
+import GeneradorContrasena from './components/generador.vue'
+import AnalizadorContrasena from './components/analizador.vue'
 
+const seccion = ref<Seccion>('generar')
 </script>
 
 <template>
-  <header>
-    <img alt="Vue logo" class="logo" src="./assets/logo.svg" width="125" height="125" />
-
-    <div class="wrapper">
-      <HelloWorld msg="You did it!" />
-    </div>
-  </header>
-
+  <AppHeader :seccion="seccion" @cambiar="seccion = $event" />
   <main>
-    <TheWelcome />
+    <GeneradorContrasena v-if="seccion === 'generar'" />
+    <AnalizadorContrasena v-else @generar="seccion = 'generar'" />
   </main>
 </template>
 
 <style scoped>
-header {
-  line-height: 1.5;
+main {
+  grid-column: 1 / -1; /* ocupa todo el ancho de la rejilla de #app */
+  width: 100%;
+  padding-top: 80px; /* hueco para el header fijo */
 }
 
-.logo {
-  display: block;
-  margin: 0 auto 2rem;
-}
-
-@media (min-width: 1024px) {
-  header {
-    display: flex;
-    place-items: center;
-    padding-right: calc(var(--section-gap) / 2);
-  }
-
-  .logo {
-    margin: 0 2rem 0 0;
-  }
-
-  header .wrapper {
-    display: flex;
-    place-items: flex-start;
-    flex-wrap: wrap;
+@media (max-width: 768px) {
+  main {
+    padding-top: 64px;
   }
 }
 </style>

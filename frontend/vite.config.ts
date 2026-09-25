@@ -15,4 +15,10 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  // Reenvía /api al backend de ASP.NET para evitar problemas de CORS en desarrollo
+  server: {
+    proxy: {
+      '/api': 'http://localhost:5225',
+    },
+  },
 })
