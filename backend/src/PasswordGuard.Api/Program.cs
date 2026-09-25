@@ -1,4 +1,5 @@
 using passwordGuard.Api.Service;
+DotNetEnv.Env.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,6 +11,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddScoped<comprobarContrasenaService>();
 // Singleton: la lista de contraseñas comunes se lee del disco una sola vez al arrancar
 builder.Services.AddSingleton<contrasenasComunesService>();
+// AddHttpClient le pasa a GeminiService un HttpClient gestionado por ASP.NET
+builder.Services.AddHttpClient<GeminiService>(client => client.Timeout = TimeSpan.FromSeconds(15));
 
 var app = builder.Build();
 
