@@ -1,3 +1,4 @@
+using passwordGuard.Api.models;
 using passwordGuard.Api.Service;
 DotNetEnv.Env.Load();
 
@@ -12,7 +13,9 @@ builder.Services.AddScoped<comprobarContrasenaService>();
 // Singleton: la lista de contraseñas comunes se lee del disco una sola vez al arrancar
 builder.Services.AddSingleton<contrasenasComunesService>();
 // AddHttpClient le pasa a GeminiService un HttpClient gestionado por ASP.NET
-builder.Services.AddHttpClient<GeminiService>(client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddHttpClient<IConsejosIAService, GeminiService>(client => client.Timeout = TimeSpan.FromSeconds(15));
+// Contrasena no guarda estado, así que una sola instancia sirve para todas las peticiones
+builder.Services.AddSingleton<Contrasena>();
 
 var app = builder.Build();
 

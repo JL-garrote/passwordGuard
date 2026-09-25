@@ -3,7 +3,7 @@ using passwordGuard.Api.models;
 
 namespace passwordGuard.Api.Service
 {
-    public class GeminiService
+    public class GeminiService : IConsejosIAService
     {
         private const string UrlBase = "https://generativelanguage.googleapis.com/v1beta/models/";
 
