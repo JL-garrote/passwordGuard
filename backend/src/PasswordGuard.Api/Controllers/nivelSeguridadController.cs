@@ -28,7 +28,7 @@ namespace passwordGuard.Api.Controllers
         public IActionResult EvaluarContrasena([FromBody] ContrasenaRequest request)
         {
             bool comun = _contrasenasComunesService.esContrasenaComun(request.Contrasena);
-            return Ok(new { Valida = comun });
+            return Ok(new { esComun = comun });
         }
     }
 

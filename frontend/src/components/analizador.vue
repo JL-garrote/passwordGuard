@@ -76,7 +76,30 @@ function formatearTiempo(segundos: number): string {
   return 'en siglos';
 }
 
-const tiempoDescifrado = computed(() => formatearTiempo(combinaciones.value / INTENTOS_POR_SEGUNDO));
+// Contraseña común (lista de las 10.000 más usadas del backend): true, false o null si todavía no hay dato
+const esComun = ref<boolean | null>(null);
+let ultimaConsultaComun = 0;
+
+async function consultarComun(valor: string) {
+  const consulta = ++ultimaConsultaComun;
+  try {
+    const respuesta = await fetch('/api/nivelSeguridad/evaluar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contrasena: valor }),
+    });
+    if (!respuesta.ok) throw new Error(`Error ${respuesta.status}`);
+    const datos = (await respuesta.json()) as { esComun: boolean };
+    if (consulta === ultimaConsultaComun) esComun.value = datos.esComun;
+  } catch {
+    if (consulta === ultimaConsultaComun) esComun.value = null;
+  }
+}
+
+// Una contraseña común o filtrada cae en un ataque de diccionario, sin necesidad de fuerza bruta
+const tiempoDescifrado = computed(() =>
+  esComun.value || filtrada.value ? 'al instante' : formatearTiempo(combinaciones.value / INTENTOS_POR_SEGUNDO)
+);
 
 // Nivel de seguridad: lo calcula el backend (incluye la lista de contraseñas comunes)
 const NIVELES_SERVIDOR: Record<string, { n: number; etiqueta: string; clase: string }> = {
@@ -119,6 +142,9 @@ const filtraciones = ref<number | null>(null);
 const estadoFiltraciones = ref<'cargando' | 'error' | 'listo'>('listo');
 let ultimaConsultaFiltraciones = 0;
 
+// Filtrada: aparece al menos una vez en Have I Been Pwned
+const filtrada = computed(() => (filtraciones.value ?? 0) > 0);
+
 async function consultarFiltraciones(valor: string) {
   const consulta = ++ultimaConsultaFiltraciones;
   estadoFiltraciones.value = 'cargando';
@@ -141,18 +167,24 @@ watch(contrasena, (valor) => {
   if (!valor) {
     ultimaPeticion++;
     ultimaConsultaFiltraciones++;
+    ultimaConsultaComun++;
     nivelServidor.value = null;
     filtraciones.value = null;
     estadoFiltraciones.value = 'listo';
+    esComun.value = null;
     return;
   }
   evaluarTimer = setTimeout(() => {
     evaluarEnServidor(valor);
     consultarFiltraciones(valor);
+    consultarComun(valor);
   }, 300);
 });
 
 const nivel = computed(() => {
+  // Una contraseña común o filtrada es insegura aunque cumpla todo lo demás
+  if (esComun.value || filtrada.value) return { n: 1, etiqueta: 'Insegura', clase: 'debil' };
+
   const servidor = nivelServidor.value ? NIVELES_SERVIDOR[nivelServidor.value] : undefined;
   if (servidor) return servidor;
 
@@ -167,7 +199,21 @@ const nivel = computed(() => {
 const chips = computed(() => {
   const l = longitud.value;
   const t = tiene.value;
+  const comun = esComun.value
+    ? [{ estado: 'mal', texto: 'Contraseña muy común', detalle: 'Está entre las 10.000 más usadas' }]
+    : [];
+  const filtrado = filtrada.value
+    ? [
+        {
+          estado: 'mal',
+          texto: 'Aparece en filtraciones',
+          detalle: `Vista ${(filtraciones.value ?? 0).toLocaleString('es-ES')} ${filtraciones.value === 1 ? 'vez' : 'veces'}`,
+        },
+      ]
+    : [];
   return [
+    ...comun,
+    ...filtrado,
     l >= 12
       ? { estado: 'ok', texto: `${l} caracteres`, detalle: 'Longitud adecuada' }
       : l >= 8
@@ -280,7 +326,13 @@ onBeforeUnmount(() => clearTimeout(evaluarTimer));
           <div>
             <span class="etiqueta-mayus">Tiempo estimado para descifrarla</span>
             <div class="tiempo-valor">Se descifraría {{ tiempoDescifrado }}</div>
-            <span class="texto-suave">probando 10.000 millones de combinaciones por segundo (una GPU doméstica).</span>
+            <span v-if="esComun" class="texto-suave">
+              con un ataque de diccionario: está entre las contraseñas más usadas, que son lo primero que se prueba.
+            </span>
+            <span v-else-if="filtrada" class="texto-suave">
+              con un ataque de diccionario: aparece en filtraciones públicas, que los atacantes prueban antes que nada.
+            </span>
+            <span v-else class="texto-suave">probando 10.000 millones de combinaciones por segundo (una GPU doméstica).</span>
           </div>
           <div class="metricas">
             <span class="mono">{{ entropia.toFixed(1) }} bits de entropía</span>
