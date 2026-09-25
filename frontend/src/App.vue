@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import AppHeader from './components/header.vue'
+import { ref } from 'vue'
+import AppHeader, { type Seccion } from './components/header.vue'
 import GeneradorContrasena from './components/generador.vue'
+import AnalizadorContrasena from './components/analizador.vue'
+
+const seccion = ref<Seccion>('generar')
 </script>
 
 <template>
-  <AppHeader />
+  <AppHeader :seccion="seccion" @cambiar="seccion = $event" />
   <main>
-    <GeneradorContrasena />
+    <GeneradorContrasena v-if="seccion === 'generar'" />
+    <AnalizadorContrasena v-else @generar="seccion = 'generar'" />
   </main>
 </template>
 

@@ -8,10 +8,12 @@ namespace passwordGuard.Api.Controllers
     public class nivelSeguridadController : ControllerBase
     {
         private readonly comprobarContrasenaService _comprobarContrasenaService;
+        private readonly contrasenasComunesService _contrasenasComunesService;
 
-        public nivelSeguridadController(comprobarContrasenaService comprobarContrasenaService)
+        public nivelSeguridadController(comprobarContrasenaService comprobarContrasenaService, contrasenasComunesService contrasenasComunesService)
         {
             _comprobarContrasenaService = comprobarContrasenaService;
+            _contrasenasComunesService = contrasenasComunesService;
         }
 
         [HttpPost("comprobar")]
@@ -20,6 +22,13 @@ namespace passwordGuard.Api.Controllers
             bool esValida = _comprobarContrasenaService.comprobarContrasena(request.Contrasena, request.UsarMayusculas, request.UsarMinusculas, request.UsarNumeros, request.UsarSimbolos);
             string nivelSeguridad = _comprobarContrasenaService.evaluarContrasena(request.Contrasena);   
             return Ok(new { Valida = esValida, NivelSeguridad = nivelSeguridad });
+        }
+
+        [HttpPost("evaluar")]
+        public IActionResult EvaluarContrasena([FromBody] ContrasenaRequest request)
+        {
+            bool comun = _contrasenasComunesService.esContrasenaComun(request.Contrasena);
+            return Ok(new { Valida = comun });
         }
     }
 
