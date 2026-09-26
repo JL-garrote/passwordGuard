@@ -32,8 +32,7 @@ namespace passwordGuard.Api.Controllers
             return Ok(new { esComun = comun });
         }
 
-        // Los servicios se piden solo aquí ([FromServices]) para que, si falta la clave de Gemini,
-        // únicamente falle este endpoint y no todo el controlador
+
         [HttpPost("consejos")]
         public async Task<IActionResult> ConsejosContrasena(
             [FromBody] ContrasenaRequest request,
@@ -41,7 +40,6 @@ namespace passwordGuard.Api.Controllers
             [FromServices] IConsejosIAService consejosIA,
             CancellationToken cancelacion)
         {
-            // A la IA solo le llega la estructura anónima, nunca la contraseña
             string patrones = contrasena.partirContrasena(request.Contrasena);
             ConsejosIA? consejos = await consejosIA.ObtenerConsejosAsync(patrones, cancelacion);
             return Ok(new { Patrones = patrones, Consejos = consejos?.Consejos });

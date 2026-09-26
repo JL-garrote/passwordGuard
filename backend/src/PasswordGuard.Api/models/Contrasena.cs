@@ -7,18 +7,23 @@ namespace passwordGuard.Api.models
     {
         string[] tipo = { "palabra", "numero", "año", "repeticion", "simbolo" };
 
-
-        // Devuelve solo la estructura anónima (tipo y longitud de cada trozo), nunca el texto de la contraseña.
-        // Ejemplo: "Barcelona2023!" -> "palabra(9) numero(4) simbolo(1) longitud: 14"
         public string partirContrasena(string contrasena)
         {
             StringBuilder sb = new StringBuilder();
             MatchCollection trozos = Regex.Matches(contrasena, @"\p{L}+|\p{Nd}+|[^\p{L}\p{Nd}]+");
             foreach (Match trozo in trozos)
             {
-                if (Regex.IsMatch(trozo.Value, @"\p{L}+"))
+                if(trozo.Length >= 3 && trozo.Value.All(c => char.ToLower(c) == char.ToLower(trozo.Value[0])))
+                {
+                    sb.Append($"{tipo[3]}({trozo.Length}) ");
+                }
+                else if (Regex.IsMatch(trozo.Value, @"\p{L}+"))
                 {
                     sb.Append($"{tipo[0]}({trozo.Length}) ");
+                }
+                else if (trozo.Length == 4 && int.TryParse(trozo.Value, out int valor) && valor >= 1900 && valor <= DateTime.Now.Year + 1)
+                {
+                    sb.Append($"{tipo[2]}({trozo.Length}) ");
                 }
                 else if (Regex.IsMatch(trozo.Value, @"\p{Nd}+"))
                 {
@@ -33,5 +38,4 @@ namespace passwordGuard.Api.models
             return sb.ToString();
         }
     }
-
 }
