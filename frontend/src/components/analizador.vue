@@ -96,10 +96,18 @@ async function consultarComun(valor: string) {
   }
 }
 
-// Una contraseña común o filtrada cae en un ataque de diccionario, sin necesidad de fuerza bruta
-const tiempoDescifrado = computed(() =>
-  esComun.value || filtrada.value ? 'al instante' : formatearTiempo(combinaciones.value / INTENTOS_POR_SEGUNDO)
+// El atacante usa el ataque que antes funcione, así que el tiempo real es el mínimo:
+// diccionario (común o filtrada) -> al instante; si no, lo menor entre fuerza bruta y el modelo de Markov
+const segundosFuerzaBruta = computed(() => combinaciones.value / INTENTOS_POR_SEGUNDO);
+const ganaModelo = computed(
+  () => !!estimacion.value && estimacion.value.segundos < segundosFuerzaBruta.value
 );
+const tiempoDescifrado = computed(() => {
+  if (esComun.value || filtrada.value) return 'al instante';
+  return formatearTiempo(
+    ganaModelo.value && estimacion.value ? estimacion.value.segundos : segundosFuerzaBruta.value
+  );
+});
 
 // Nivel de seguridad: lo calcula el backend (incluye la lista de contraseñas comunes)
 const NIVELES_SERVIDOR: Record<string, { n: number; etiqueta: string; clase: string }> = {
@@ -161,6 +169,28 @@ async function consultarFiltraciones(valor: string) {
   }
 }
 
+// Ataque realista: el microservicio de Python (modelo de Markov entrenado con contraseñas filtradas)
+// estima en qué intento se adivinaría probando primero lo más "humano". null si no está disponible
+type EstimacionAtaque = { bits: number; intentosEstimados: number; segundos: number; categoria: string };
+const estimacion = ref<EstimacionAtaque | null>(null);
+let ultimaConsultaEstimacion = 0;
+
+async function consultarEstimacion(valor: string) {
+  const consulta = ++ultimaConsultaEstimacion;
+  try {
+    const respuesta = await fetch('/api/nivelSeguridad/estimar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contrasena: valor }),
+    });
+    if (!respuesta.ok) throw new Error(`Error ${respuesta.status}`);
+    const datos = (await respuesta.json()) as { estimacion: EstimacionAtaque | null };
+    if (consulta === ultimaConsultaEstimacion) estimacion.value = datos.estimacion;
+  } catch {
+    if (consulta === ultimaConsultaEstimacion) estimacion.value = null;
+  }
+}
+
 // Consejos con IA: el backend solo envía a Gemini la estructura anónima (tipos y longitudes), nunca la contraseña
 type ConsejoIA = { titulo: string; texto: string };
 
@@ -171,7 +201,36 @@ const CONSEJOS_GENERALES: ConsejoIA[] = [
   { titulo: 'Intercala símbolos', texto: 'Un símbolo en medio de la contraseña es mucho más difícil de adivinar que uno al final.' },
 ];
 
-const NOMBRES_SEGMENTO: Record<string, string> = { palabra: 'Palabra', numero: 'Número', simbolo: 'Símbolo' };
+// Nombres legibles de los tipos que devuelve partirContrasena en el backend
+const NOMBRES_SEGMENTO: Record<string, string> = {
+  palabra: 'Palabra',
+  numero: 'Número',
+  simbolo: 'Símbolo',
+  año: 'Año',
+  repeticion: 'Repetición',
+  mayusculas: 'en mayúsculas',
+  minusculas: 'en minúsculas',
+  capitalizada: 'capitalizada',
+  mixta: 'mixta',
+  letras: 'de letras',
+  numeros: 'de números',
+  simbolos: 'de símbolos',
+};
+
+// "palabra-capitalizada" -> "Palabra capitalizada"; un tipo desconocido se muestra tal cual con la primera en mayúscula
+function nombreSegmento(tipo: string) {
+  const texto = tipo
+    .split('-')
+    .map((parte) => NOMBRES_SEGMENTO[parte] ?? parte)
+    .join(' ');
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+// El color depende del tipo base (lo que va antes del guion); "año" se escribe sin ñ en la clase CSS
+function claseSegmento(tipo: string) {
+  const base = tipo.split('-')[0] ?? '';
+  return `segmento-${base === 'año' ? 'anio' : base}`;
+}
 
 const segmentosIA = ref<{ tipo: string; longitud: number }[]>([]);
 const consejosIA = ref<ConsejoIA[] | null>(null);
@@ -180,9 +239,10 @@ const consejosMostrados = computed(() => consejosIA.value ?? CONSEJOS_GENERALES)
 let consejosTimer: ReturnType<typeof setTimeout> | undefined;
 let ultimaConsultaConsejos = 0;
 
-// "palabra(9) numero(4) simbolo(1) longitud: 14" -> [{ tipo: 'palabra', longitud: 9 }, ...]
+// "palabra(9) año(4) simbolo(1) longitud: 14" -> [{ tipo: 'palabra', longitud: 9 }, ...]
+// Acepta guiones en el tipo, por ejemplo "palabra-capitalizada(9)"
 function leerEstructura(patrones: string) {
-  return [...patrones.matchAll(/(\p{L}+)\((\d+)\)/gu)].map((m) => ({ tipo: m[1] ?? '', longitud: Number(m[2]) }));
+  return [...patrones.matchAll(/([\p{L}-]+)\((\d+)\)/gu)].map((m) => ({ tipo: m[1] ?? '', longitud: Number(m[2]) }));
 }
 
 async function consultarConsejos(valor: string) {
@@ -218,6 +278,8 @@ watch(contrasena, (valor) => {
     ultimaConsultaFiltraciones++;
     ultimaConsultaComun++;
     ultimaConsultaConsejos++;
+    ultimaConsultaEstimacion++;
+    estimacion.value = null;
     nivelServidor.value = null;
     filtraciones.value = null;
     estadoFiltraciones.value = 'listo';
@@ -231,6 +293,7 @@ watch(contrasena, (valor) => {
     evaluarEnServidor(valor);
     consultarFiltraciones(valor);
     consultarComun(valor);
+    consultarEstimacion(valor);
   }, 300);
   estadoConsejos.value = 'cargando';
   consejosTimer = setTimeout(() => consultarConsejos(valor), 1200);
@@ -390,11 +453,29 @@ onBeforeUnmount(() => {
             <span v-else-if="filtrada" class="texto-suave">
               con un ataque de diccionario: aparece en filtraciones públicas, que los atacantes prueban antes que nada.
             </span>
+            <span v-else-if="ganaModelo" class="texto-suave">
+              con un ataque realista: sigue patrones habituales, así que se adivina antes que por fuerza bruta.
+            </span>
             <span v-else class="texto-suave">probando 10.000 millones de combinaciones por segundo (una GPU doméstica).</span>
           </div>
           <div class="metricas">
             <span class="mono">{{ entropia.toFixed(1) }} bits de entropía</span>
             <span class="mono texto-suave">~{{ combinaciones.toExponential(1) }} combinaciones</span>
+          </div>
+        </div>
+
+        <!-- Solo si el microservicio de Python está arrancado y no hay ya un ataque de diccionario que la saque al instante -->
+        <div v-if="estimacion && !esComun && !filtrada" class="tiempo realista">
+          <div>
+            <span class="etiqueta-mayus">Con un ataque realista</span>
+            <div class="tiempo-valor">Se descifraría {{ formatearTiempo(estimacion.segundos) }}</div>
+            <span class="texto-suave">
+              probando primero lo que suele usar la gente, según un modelo entrenado con millones de contraseñas filtradas.
+            </span>
+          </div>
+          <div class="metricas">
+            <span class="mono">{{ estimacion.bits.toFixed(1) }} bits según el modelo</span>
+            <span class="mono texto-suave">~{{ estimacion.intentosEstimados.toExponential(1) }} intentos</span>
           </div>
         </div>
 
@@ -506,8 +587,8 @@ onBeforeUnmount(() => {
           <div class="estructura-segmentos">
             <template v-for="(s, i) in segmentosIA" :key="i">
               <span v-if="i > 0" class="texto-suave">+</span>
-              <span class="segmento" :class="`segmento-${s.tipo}`">
-                {{ NOMBRES_SEGMENTO[s.tipo] ?? s.tipo }} · {{ s.longitud }}
+              <span class="segmento" :class="claseSegmento(s.tipo)">
+                {{ nombreSegmento(s.tipo) }} · {{ s.longitud }}
               </span>
             </template>
           </div>
@@ -872,6 +953,10 @@ p {
   border-radius: 0.75rem;
   background: var(--subtle);
 }
+/* Mismo bloque que el de fuerza bruta, con un borde para distinguirlo */
+.tiempo.realista {
+  box-shadow: inset 3px 0 0 var(--tertiary);
+}
 .tiempo-valor {
   margin: 2px 0;
   font-size: 28px;
@@ -1076,6 +1161,14 @@ p {
 }
 .segmento-simbolo {
   color: var(--error);
+}
+.segmento-anio {
+  color: var(--tertiary);
+}
+.segmento-repeticion {
+  color: var(--error);
+  text-decoration: underline wavy;
+  text-underline-offset: 3px;
 }
 
 .consejo {
