@@ -96,10 +96,18 @@ async function consultarComun(valor: string) {
   }
 }
 
-// Una contraseña común o filtrada cae en un ataque de diccionario, sin necesidad de fuerza bruta
-const tiempoDescifrado = computed(() =>
-  esComun.value || filtrada.value ? 'al instante' : formatearTiempo(combinaciones.value / INTENTOS_POR_SEGUNDO)
+// El atacante usa el ataque que antes funcione, así que el tiempo real es el mínimo:
+// diccionario (común o filtrada) -> al instante; si no, lo menor entre fuerza bruta y el modelo de Markov
+const segundosFuerzaBruta = computed(() => combinaciones.value / INTENTOS_POR_SEGUNDO);
+const ganaModelo = computed(
+  () => !!estimacion.value && estimacion.value.segundos < segundosFuerzaBruta.value
 );
+const tiempoDescifrado = computed(() => {
+  if (esComun.value || filtrada.value) return 'al instante';
+  return formatearTiempo(
+    ganaModelo.value && estimacion.value ? estimacion.value.segundos : segundosFuerzaBruta.value
+  );
+});
 
 // Nivel de seguridad: lo calcula el backend (incluye la lista de contraseñas comunes)
 const NIVELES_SERVIDOR: Record<string, { n: number; etiqueta: string; clase: string }> = {
@@ -445,6 +453,9 @@ onBeforeUnmount(() => {
             <span v-else-if="filtrada" class="texto-suave">
               con un ataque de diccionario: aparece en filtraciones públicas, que los atacantes prueban antes que nada.
             </span>
+            <span v-else-if="ganaModelo" class="texto-suave">
+              con un ataque realista: sigue patrones habituales, así que se adivina antes que por fuerza bruta.
+            </span>
             <span v-else class="texto-suave">probando 10.000 millones de combinaciones por segundo (una GPU doméstica).</span>
           </div>
           <div class="metricas">
@@ -453,8 +464,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <!-- Solo aparece si el microservicio de Python está arrancado -->
-        <div v-if="estimacion" class="tiempo realista">
+        <!-- Solo si el microservicio de Python está arrancado y no hay ya un ataque de diccionario que la saque al instante -->
+        <div v-if="estimacion && !esComun && !filtrada" class="tiempo realista">
           <div>
             <span class="etiqueta-mayus">Con un ataque realista</span>
             <div class="tiempo-valor">Se descifraría {{ formatearTiempo(estimacion.segundos) }}</div>
