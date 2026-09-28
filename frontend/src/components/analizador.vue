@@ -161,6 +161,28 @@ async function consultarFiltraciones(valor: string) {
   }
 }
 
+// Ataque realista: el microservicio de Python (modelo de Markov entrenado con contraseñas filtradas)
+// estima en qué intento se adivinaría probando primero lo más "humano". null si no está disponible
+type EstimacionAtaque = { bits: number; intentosEstimados: number; segundos: number; categoria: string };
+const estimacion = ref<EstimacionAtaque | null>(null);
+let ultimaConsultaEstimacion = 0;
+
+async function consultarEstimacion(valor: string) {
+  const consulta = ++ultimaConsultaEstimacion;
+  try {
+    const respuesta = await fetch('/api/nivelSeguridad/estimar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contrasena: valor }),
+    });
+    if (!respuesta.ok) throw new Error(`Error ${respuesta.status}`);
+    const datos = (await respuesta.json()) as { estimacion: EstimacionAtaque | null };
+    if (consulta === ultimaConsultaEstimacion) estimacion.value = datos.estimacion;
+  } catch {
+    if (consulta === ultimaConsultaEstimacion) estimacion.value = null;
+  }
+}
+
 // Consejos con IA: el backend solo envía a Gemini la estructura anónima (tipos y longitudes), nunca la contraseña
 type ConsejoIA = { titulo: string; texto: string };
 
@@ -248,6 +270,8 @@ watch(contrasena, (valor) => {
     ultimaConsultaFiltraciones++;
     ultimaConsultaComun++;
     ultimaConsultaConsejos++;
+    ultimaConsultaEstimacion++;
+    estimacion.value = null;
     nivelServidor.value = null;
     filtraciones.value = null;
     estadoFiltraciones.value = 'listo';
@@ -261,6 +285,7 @@ watch(contrasena, (valor) => {
     evaluarEnServidor(valor);
     consultarFiltraciones(valor);
     consultarComun(valor);
+    consultarEstimacion(valor);
   }, 300);
   estadoConsejos.value = 'cargando';
   consejosTimer = setTimeout(() => consultarConsejos(valor), 1200);
@@ -425,6 +450,21 @@ onBeforeUnmount(() => {
           <div class="metricas">
             <span class="mono">{{ entropia.toFixed(1) }} bits de entropía</span>
             <span class="mono texto-suave">~{{ combinaciones.toExponential(1) }} combinaciones</span>
+          </div>
+        </div>
+
+        <!-- Solo aparece si el microservicio de Python está arrancado -->
+        <div v-if="estimacion" class="tiempo realista">
+          <div>
+            <span class="etiqueta-mayus">Con un ataque realista</span>
+            <div class="tiempo-valor">Se descifraría {{ formatearTiempo(estimacion.segundos) }}</div>
+            <span class="texto-suave">
+              probando primero lo que suele usar la gente, según un modelo entrenado con millones de contraseñas filtradas.
+            </span>
+          </div>
+          <div class="metricas">
+            <span class="mono">{{ estimacion.bits.toFixed(1) }} bits según el modelo</span>
+            <span class="mono texto-suave">~{{ estimacion.intentosEstimados.toExponential(1) }} intentos</span>
           </div>
         </div>
 
@@ -901,6 +941,10 @@ p {
   padding: 1rem;
   border-radius: 0.75rem;
   background: var(--subtle);
+}
+/* Mismo bloque que el de fuerza bruta, con un borde para distinguirlo */
+.tiempo.realista {
+  box-shadow: inset 3px 0 0 var(--tertiary);
 }
 .tiempo-valor {
   margin: 2px 0;

@@ -44,6 +44,17 @@ namespace passwordGuard.Api.Controllers
             ConsejosIA? consejos = await consejosIA.ObtenerConsejosAsync(patrones, cancelacion);
             return Ok(new { Patrones = patrones, Consejos = consejos?.Consejos });
         }
+
+        [HttpPost("estimar")]
+        public async Task<IActionResult> EstimarContrasena(
+            [FromBody] ContrasenaRequest request,
+            [FromServices] IEstimadorService estimador,
+            CancellationToken cancelacion)
+        {
+            // null si el microservicio de Python no está disponible
+            EstimacionAtaque? estimacion = await estimador.EstimarAsync(request.Contrasena, cancelacion);
+            return Ok(new { Estimacion = estimacion });
+        }
     }
 
     public class ContrasenaRequest
