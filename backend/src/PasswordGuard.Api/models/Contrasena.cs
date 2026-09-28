@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -5,7 +6,7 @@ namespace passwordGuard.Api.models
 {
     public class Contrasena
     {
-        string[] tipo = { "palabra", "numero", "año", "repeticion", "simbolo" };
+        string[] tipo = { "palabra", "numero", "año", "repeticion", "simbolo", "fecha" };
 
         public string partirContrasena(string contrasena)
         {
@@ -21,7 +22,11 @@ namespace passwordGuard.Api.models
                 {
                     sb.Append($"{tipo[0]}({trozo.Length}) ");
                 }
-                else if (trozo.Length == 4 && int.TryParse(trozo.Value, out int valor) && valor >= 1900 && valor <= DateTime.Now.Year + 1)
+                else if (trozo.Length == 8 && int.TryParse(trozo.Value, out int valor) && valor >= 01011900 && valor <= DateTime.Now.Year + 1)
+                {
+                    sb.Append($"{tipo[5]}({trozo.Length}) ");
+                }
+                else if (trozo.Length == 4 && int.TryParse(trozo.Value, out int valo) && valo >= 1900 && valo <= DateTime.Now.Year + 1)
                 {
                     sb.Append($"{tipo[2]}({trozo.Length}) ");
                 }
