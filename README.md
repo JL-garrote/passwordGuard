@@ -1,8 +1,10 @@
 # 🔐 Password Guard
 
-**Password Guard** es una aplicación web para **generar contraseñas seguras** y **analizar la seguridad de las que ya usas**. Combina cálculos en el navegador, una API propia en ASP.NET Core, la comprobación de filtraciones de [Have I Been Pwned](https://haveibeenpwned.com/Passwords) y consejos personalizados generados con IA (Google Gemini).
+**Password Guard** es una aplicación web para **generar contraseñas seguras** y **analizar la seguridad de las que ya usas**. Combina cálculos en el navegador, una API propia en ASP.NET Core, la comprobación de filtraciones de [Have I Been Pwned](https://haveibeenpwned.com/Passwords), consejos personalizados generados con IA (Google Gemini) y un microservicio en Python que estima **cuántos intentos necesitaría un atacante real** para adivinarla.
 
-> 🚧 **Proyecto en desarrollo.** Es un proyecto personal de aprendizaje de desarrollo *full stack* con Vue 3 y .NET. Algunas funciones están en construcción; consulta [Limitaciones conocidas](#-limitaciones-conocidas) y la [Hoja de ruta](#-hoja-de-ruta).
+Todo el proyecto se levanta con un solo comando gracias a **Docker Compose**.
+
+> 🚧 **Proyecto en desarrollo.** Es un proyecto personal de aprendizaje de desarrollo *full stack* con Vue 3, .NET y Python. Consulta [Limitaciones conocidas](#-limitaciones-conocidas) y la [Hoja de ruta](#-hoja-de-ruta).
 
 ---
 
@@ -18,6 +20,7 @@
 - [Configuración](#-configuración)
 - [API](#-api)
 - [Cómo se evalúa una contraseña](#-cómo-se-evalúa-una-contraseña)
+- [Microservicio de estimación en Python](#-microservicio-de-estimación-en-python)
 - [Pruebas](#-pruebas)
 - [Flujo de trabajo con Git](#-flujo-de-trabajo-con-git)
 - [Limitaciones conocidas](#-limitaciones-conocidas)
@@ -41,14 +44,18 @@
 
 Escribe o pega una contraseña y obtendrás:
 
-- **Fortaleza**: nivel de 1 a 4 (*Débil*, *Media*, *Fuerte*, *Muy fuerte* o *Insegura*), entropía, número de combinaciones posibles y **tiempo estimado para descifrarla** por fuerza bruta.
+- **Fortaleza**: nivel de 1 a 4 (*Débil*, *Media*, *Fuerte*, *Muy fuerte* o *Insegura*), entropía, número de combinaciones posibles y **tiempo estimado para descifrarla**.
+- **Ataque realista**: cuántos intentos necesitaría un atacante que prueba primero lo que suele usar la gente, según un **modelo de Markov entrenado con un millón de contraseñas filtradas**, frente a lo que tardaría la fuerza bruta.
 - **Desglose de la composición**: longitud, mayúsculas y minúsculas combinadas, números y símbolos.
 - **Contraseñas comunes**: comprobación contra una lista de las **10 000 contraseñas más usadas**.
 - **Filtraciones**: cuántas veces aparece la contraseña en filtraciones públicas según **Have I Been Pwned**, usando *k-anonymity*.
-- **Patrones y consejos con IA**: la estructura anónima de la contraseña (por ejemplo, `Palabra · 9 + Número · 4 + Símbolo · 1`) y tres consejos personalizados generados por **Gemini**.
+- **Patrones y consejos con IA**: la estructura anónima de la contraseña, que detecta **palabras, números, símbolos, años y repeticiones** (por ejemplo, `Palabra · 9 + Año · 4 + Símbolo · 1`), y tres consejos personalizados generados por **Gemini**. Si la IA no está disponible, se muestran consejos generales.
 - **Pruebas rápidas** con contraseñas de ejemplo y botón para mostrar u ocultar la contraseña.
 
-Si una contraseña es **común** o aparece en **alguna filtración**, se marca como **Insegura** y se estima que se descifraría **al instante**, aunque cumpla el resto de requisitos.
+El tiempo mostrado es el del **ataque que antes funcionaría**:
+
+- Si la contraseña es **común** o aparece en **alguna filtración**, se marca como **Insegura** y se descifraría **al instante** con un ataque de diccionario, aunque cumpla el resto de requisitos.
+- Si no, se muestra el **menor** de dos tiempos: el de fuerza bruta y el del modelo de Markov.
 
 ---
 
@@ -59,12 +66,16 @@ Password Guard **no guarda ninguna contraseña**: no hay base de datos, ni cooki
 | Destino | Qué se envía | Para qué |
 |---|---|---|
 | **API de Password Guard** (tu propio servidor) | La contraseña completa | Calcular su nivel, comprobar si es común y extraer su estructura anónima |
+| **Estimador en Python** (mismo equipo o red interna de Docker) | La contraseña completa, **solo desde el backend** | Estimar el número de intentos de un ataque realista |
 | **Have I Been Pwned** | Solo los **5 primeros caracteres del hash SHA-1**, calculado en el navegador | Comprobar filtraciones sin revelar la contraseña (*k-anonymity*) |
-| **Google Gemini** | Solo la **estructura anónima**, por ejemplo `palabra(9) numero(4) simbolo(1) longitud: 14` | Generar consejos personalizados |
+| **Google Gemini** | Solo la **estructura anónima**, por ejemplo `palabra(9) año(4) simbolo(1) longitud: 14` | Generar consejos personalizados |
 
 - La comprobación de filtraciones funciona así: el navegador calcula el SHA-1 de la contraseña, envía solo sus 5 primeros caracteres y recibe cientos de hashes que empiezan igual. La coincidencia se busca **en el navegador**, así que Have I Been Pwned nunca conoce la contraseña.
 - A Gemini **nunca** le llega la contraseña ni ningún fragmento de ella: solo los tipos de cada bloque y sus longitudes.
-- Los registros (*logs*) del backend no incluyen la contraseña ni fragmentos de ella.
+- El estimador **no es accesible desde fuera**:
+  - en local escucha solo en `127.0.0.1`;
+  - con Docker no publica ningún puerto, así que solo lo alcanza el backend por la red interna.
+- Los registros (*logs*) del backend y del estimador no incluyen la contraseña ni fragmentos de ella.
 
 > ⚠️ Al usar la capa gratuita de Gemini, Google puede utilizar el contenido enviado para mejorar sus productos. Por eso solo se envía la estructura anónima. Revisa las condiciones actuales en [Google AI Studio](https://aistudio.google.com/).
 
@@ -82,14 +93,27 @@ Password Guard **no guarda ninguna contraseña**: no hay base de datos, ni cooki
 **Backend**
 
 - [.NET 10](https://dotnet.microsoft.com/) y **ASP.NET Core Web API** con controladores
-- Inyección de dependencias (`AddScoped`, `AddSingleton`, `AddHttpClient`)
+- Inyección de dependencias (`AddScoped`, `AddSingleton`, `AddHttpClient` con clientes tipados)
 - [DotNetEnv](https://www.nuget.org/packages/DotNetEnv) para cargar la configuración desde un archivo `.env`
-- `HttpClient` para llamar a la API REST de **Google Gemini** con salida JSON estructurada
+- `HttpClient` para llamar a la API REST de **Google Gemini** (salida JSON estructurada) y al **estimador en Python**
 - OpenAPI (documento en `/openapi/v1.json` en desarrollo)
+
+**Microservicio de estimación**
+
+- [Python 3.14](https://www.python.org/) con entorno virtual (`venv`)
+- [FastAPI](https://fastapi.tiangolo.com/) y [Uvicorn](https://www.uvicorn.org/) para exponer el servicio
+- Modelo de Markov de caracteres y estimación Monte Carlo del número de intentos, implementados solo con la biblioteca estándar
+
+**Contenedores**
+
+- [Docker](https://www.docker.com/) con *builds* multietapa para el backend y el frontend
+- **Docker Compose** para levantar los tres servicios
+- [nginx](https://nginx.org/) para servir el frontend compilado y reenviar `/api` al backend
 
 **Pruebas**
 
-- [xUnit](https://xunit.net/), [NSubstitute](https://nsubstitute.github.io/) y `Microsoft.AspNetCore.Mvc.Testing` (proyecto preparado)
+- [pytest](https://docs.pytest.org/) y el `TestClient` de FastAPI para el microservicio
+- [xUnit](https://xunit.net/), [NSubstitute](https://nsubstitute.github.io/) y `Microsoft.AspNetCore.Mvc.Testing` para el backend (proyecto preparado)
 
 **Servicios externos**
 
@@ -102,24 +126,39 @@ Password Guard **no guarda ninguna contraseña**: no hay base de datos, ni cooki
 
 ```
 ┌──────────────────────────── Navegador ────────────────────────────┐
-│  Vue 3 + Vite  (http://localhost:5173)                            │
-│                                                                   │
+│  Vue 3                                                            │
 │  · Generador y analizador                                         │
-│  · Entropía y tiempo estimado (cálculo local)                     │
+│  · Entropía y tiempo por fuerza bruta (cálculo local)             │
 │  · SHA-1 de la contraseña ──────────────► Have I Been Pwned       │
 │                                          (solo 5 caracteres)      │
 └───────────────┬───────────────────────────────────────────────────┘
-                │  /api/*  (proxy de Vite)
+                │  /api/*  (proxy de Vite en desarrollo · nginx en Docker)
                 ▼
-┌──────────────── API ASP.NET Core (http://localhost:5225) ─────────┐
+┌──────────────────────── API ASP.NET Core ─────────────────────────┐
 │  nivelSeguridadController                                         │
 │   ├─ comprobarContrasenaService  → requisitos y puntuación        │
 │   ├─ contrasenasComunesService   → lista de 10 000 contraseñas    │
 │   ├─ Contrasena                  → estructura anónima             │
-│   └─ IConsejosIAService (GeminiService) ────────► Google Gemini   │
-│                                   (solo la estructura anónima)    │
+│   ├─ IConsejosIAService (GeminiService) ────────► Google Gemini   │
+│   │                               (solo la estructura anónima)    │
+│   └─ IEstimadorService (EstimadorService)                         │
+└───────────────┬───────────────────────────────────────────────────┘
+                │  HTTP interno (timeout de 3 s; si falla, se ignora)
+                ▼
+┌──────────────────── Estimador en Python · FastAPI ────────────────┐
+│  · Modelo de Markov entrenado con contraseñas filtradas           │
+│  · Estimación Monte Carlo del número de intentos                  │
+│  · Nunca accesible desde fuera                                    │
 └───────────────────────────────────────────────────────────────────┘
 ```
+
+| Servicio | En desarrollo local | Con Docker Compose |
+|---|---|---|
+| Frontend | `http://localhost:5173` (Vite) | `http://localhost:8080` (nginx) |
+| API | `http://localhost:5225` | `http://backend:8080` (solo red interna) |
+| Estimador | `http://127.0.0.1:8000` | `http://estimador:8000` (solo red interna) |
+
+Tanto la IA como el estimador son **opcionales**: el backend los usa a través de interfaces y, si no responden, devuelve `null` en ese campo y el resto de la aplicación sigue funcionando.
 
 ---
 
@@ -127,6 +166,7 @@ Password Guard **no guarda ninguna contraseña**: no hay base de datos, ni cooki
 
 ```
 passwordGuard/
+├── docker-compose.yml                        # Levanta los tres servicios
 ├── backend/
 │   ├── PasswordGuard.slnx                    # Solución de .NET
 │   ├── src/PasswordGuard.Api/
@@ -136,16 +176,31 @@ passwordGuard/
 │   │   │   ├── comprobarContrasenaService.cs # Requisitos, puntuación y nivel
 │   │   │   ├── contrasenasComunesService.cs  # Lista de contraseñas comunes
 │   │   │   ├── IConsejosIAService.cs         # Contrato del servicio de IA
-│   │   │   └── GeminiService.cs              # Implementación con Gemini
+│   │   │   ├── GeminiService.cs              # Implementación con Gemini
+│   │   │   ├── IEstimadorService.cs          # Contrato del estimador
+│   │   │   └── EstimadorService.cs           # Cliente HTTP del microservicio de Python
 │   │   ├── models/
-│   │   │   ├── Contrasena.cs                 # Estructura anónima de la contraseña
-│   │   │   └── ConsejosIA.cs                 # Consejos devueltos por la IA
+│   │   │   ├── Contrasena.cs                 # Estructura anónima (palabras, números, años, repeticiones…)
+│   │   │   ├── ConsejosIA.cs                 # Consejos devueltos por la IA
+│   │   │   └── EstimacionAtaque.cs           # Resultado del estimador
 │   │   ├── data/
 │   │   │   └── 10k_most_common.txt           # 10 000 contraseñas más usadas
 │   │   ├── Properties/launchSettings.json    # Puertos de desarrollo
+│   │   ├── appsettings.json                  # Configuración (URL del estimador)
 │   │   ├── Program.cs                        # Arranque y registro de servicios
+│   │   ├── Dockerfile
 │   │   └── .env                              # Clave de Gemini (no se sube a Git)
 │   └── tests/PasswordGuard.Api.Tests/        # Proyecto de pruebas (xUnit)
+├── servicios/
+│   └── estimador/                            # Microservicio en Python
+│       ├── ngram.py                          # Modelo de Markov y estimación Monte Carlo
+│       ├── entrenar.py                       # Entrenamiento y evaluación offline del modelo
+│       ├── main.py                           # API con FastAPI
+│       ├── requirements.txt                  # Dependencias de Python
+│       ├── Dockerfile
+│       ├── tests/                            # Pruebas con pytest
+│       ├── datos/                            # Listas de entrenamiento (no se suben a Git)
+│       └── modelo/                           # Modelo entrenado (no se sube a Git)
 └── frontend/
     ├── src/
     │   ├── components/
@@ -156,19 +211,31 @@ passwordGuard/
     │   ├── filtraciones.js                   # Consulta a Have I Been Pwned
     │   ├── App.vue                           # Cambio entre Generar y Analizar
     │   └── main.ts
-    └── vite.config.ts                        # Proxy /api → backend
+    ├── vite.config.ts                        # Proxy /api → backend (desarrollo)
+    ├── nginx.conf                            # Proxy /api → backend (Docker)
+    └── Dockerfile
 ```
 
 ---
 
 ## ✅ Requisitos
 
+**Con Docker (recomendado para probar el proyecto)**
+
+| Herramienta | Notas |
+|---|---|
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | En Windows necesita **WSL 2** (`wsl --install`) y la virtualización activada |
+| [Python](https://www.python.org/downloads/) 3.14 | Solo para entrenar el modelo una vez |
+| Clave de API de Gemini | Opcional, solo para los consejos con IA ([Google AI Studio](https://aistudio.google.com/)) |
+
+**Sin Docker (desarrollo)**
+
 | Herramienta | Versión |
 |---|---|
 | [.NET SDK](https://dotnet.microsoft.com/download) | 10 |
 | [Node.js](https://nodejs.org/) | 22.18 o superior (o 24.12 o superior) |
-| npm | incluido con Node.js |
-| Clave de API de Gemini | opcional, solo para los consejos con IA ([Google AI Studio](https://aistudio.google.com/)) |
+| [Python](https://www.python.org/downloads/) | 3.14 |
+| Clave de API de Gemini | Opcional |
 
 ---
 
@@ -181,70 +248,98 @@ git clone https://github.com/JL-garrote/passwordGuard.git
 cd passwordGuard
 ```
 
-### 2. Configurar el backend
+### 2. Configurar la clave de Gemini (opcional)
 
-Crea el archivo `backend/src/PasswordGuard.Api/.env` con tu clave de Gemini (consulta [Configuración](#-configuración)):
+Crea el archivo `backend/src/PasswordGuard.Api/.env` (consulta [Configuración](#-configuración)):
 
 ```env
 Gemini__ApiKey=tu-clave-de-google-ai-studio
 ```
 
-> Sin clave, la aplicación funciona igualmente: solo el endpoint de consejos devolverá un error y el analizador mostrará consejos generales.
+> Sin clave, la aplicación funciona igualmente: el endpoint de consejos devolverá un error y el analizador mostrará consejos generales. Con Docker Compose el archivo `.env` **debe existir** (aunque esté vacío), porque se carga con `env_file`.
 
-### 3. Arrancar el backend
+### 3. Entrenar el modelo del estimador (una sola vez)
 
-```bash
-cd backend/src/PasswordGuard.Api
-dotnet run
+1. Descarga [`10-million-password-list-top-1000000.txt`](https://github.com/danielmiessler/SecLists/tree/master/Passwords/Common-Credentials) de SecLists.
+2. Guárdalo en `servicios/estimador/datos/` con el nombre `10_million_password_list_top_1000000.txt`.
+3. Ejecuta:
+
+```powershell
+cd servicios/estimador
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe entrenar.py
 ```
 
-La API queda disponible en `http://localhost:5225` cuando aparece el mensaje `Now listening on: http://localhost:5225`.
+El entrenamiento tarda unos minutos y guarda el modelo en `servicios/estimador/modelo/modelo.pkl.gz`. Consulta las opciones en [Entrenamiento](#entrenamiento).
 
-### 4. Arrancar el frontend
+### 4A. Arrancar todo con Docker Compose
 
-En **otra terminal**:
+Desde la raíz del repositorio:
 
 ```bash
+docker compose up --build
+```
+
+Abre **http://localhost:8080**. La primera vez tarda unos minutos en descargar las imágenes; después aprovecha la caché.
+
+| Comando | Qué hace |
+|---|---|
+| `docker compose up -d --build` | Arranca en segundo plano |
+| `docker compose ps` | Muestra el estado (el estimador debe aparecer como `healthy`) |
+| `docker compose logs -f backend` | Muestra los registros de un servicio |
+| `docker compose up --build frontend` | Reconstruye un solo servicio tras cambiar su código |
+| `docker compose down` | Para y elimina los contenedores |
+
+El modelo **no se incluye en la imagen**: se monta como volumen de solo lectura desde `servicios/estimador/modelo/`.
+
+### 4B. Arrancar cada servicio por separado (desarrollo)
+
+Cada servicio en **su propia terminal**:
+
+```powershell
+# 1. Estimador
+cd servicios/estimador
+.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
+
+# 2. Backend
+cd backend/src/PasswordGuard.Api
+dotnet run
+
+# 3. Frontend
 cd frontend
 npm install        # solo la primera vez
 npm run dev
 ```
 
-Abre en el navegador la dirección que indique Vite, normalmente `http://localhost:5173`.
+Abre la dirección que indique Vite, normalmente `http://localhost:5173`. Para detener un servicio, pulsa `Ctrl+C` en su terminal.
 
-Para detener cualquiera de los dos servicios, pulsa `Ctrl+C` en su terminal.
+Así tienes recarga en caliente del frontend y no hace falta reconstruir imágenes con cada cambio.
 
 ### Otros comandos útiles
 
 | Comando | Dónde | Qué hace |
 |---|---|---|
 | `dotnet build` | `backend/` | Compila la solución |
-| `dotnet test` | `backend/` | Ejecuta las pruebas |
+| `dotnet test` | `backend/` | Ejecuta las pruebas del backend |
 | `npm run build` | `frontend/` | Comprueba los tipos y genera la versión de producción en `dist/` |
-| `npm run preview` | `frontend/` | Sirve la versión de producción generada |
+| `python -m pytest -q` | `servicios/estimador/` | Ejecuta las pruebas del estimador |
 
 ---
 
 ## ⚙️ Configuración
 
-El backend lee la configuración con el sistema estándar de ASP.NET Core. Las variables del archivo `.env` se cargan al arrancar gracias a **DotNetEnv**. El doble guion bajo (`__`) equivale a `:` en la configuración, así que `Gemini__ApiKey` se lee como `Gemini:ApiKey`.
+El backend lee la configuración con el sistema estándar de ASP.NET Core. Las variables del archivo `.env` se cargan al arrancar gracias a **DotNetEnv**, y en Docker llegan como variables de entorno. El doble guion bajo (`__`) equivale a `:` en la configuración, así que `Gemini__ApiKey` se lee como `Gemini:ApiKey`.
 
 | Variable | Obligatoria | Valor por defecto | Descripción |
 |---|---|---|---|
 | `Gemini__ApiKey` | Solo para los consejos con IA | — | Clave de la API de Gemini |
 | `Gemini__Model` | No | `gemini-3.8-flash` | Modelo de Gemini (por ejemplo, `gemini-3.5-flash-lite` para reducir costes) |
+| `Estimador__Url` | No | `http://127.0.0.1:8000` (en `appsettings.json`) | Dirección del microservicio de Python. Docker Compose la cambia a `http://estimador:8000` |
 
-> 🔒 **El archivo `.env` nunca debe subirse a Git.** Ya está incluido en `backend/.gitignore`. Si una clave llega a publicarse por error, **revócala en Google AI Studio y genera otra**: borrarla en un commit posterior no la elimina del historial.
+> 🔒 **El archivo `.env` nunca debe subirse a Git** ni entrar en una imagen de Docker. Ya está incluido en `backend/.gitignore` y en el `.dockerignore` del backend. Si una clave llega a publicarse por error, **revócala en Google AI Studio y genera otra**: borrarla en un commit posterior no la elimina del historial.
 
-**Puertos de desarrollo**
-
-| Servicio | URL |
-|---|---|
-| API (HTTP) | `http://localhost:5225` |
-| API (HTTPS, perfil `https`) | `https://localhost:7109` |
-| Frontend | `http://localhost:5173` |
-
-El frontend llama a rutas relativas (`/api/...`) y Vite las reenvía a `http://localhost:5225` mediante el *proxy* definido en `vite.config.ts`, por lo que en desarrollo no hace falta configurar CORS.
+En desarrollo, el frontend llama a rutas relativas (`/api/...`) y Vite las reenvía a `http://localhost:5225` mediante el *proxy* de `vite.config.ts`. En Docker hace lo mismo nginx con `nginx.conf`. En ambos casos no hace falta configurar CORS.
 
 ---
 
@@ -311,7 +406,7 @@ Extrae la estructura anónima de la contraseña y pide a Gemini tres consejos pa
 
 ```json
 {
-  "patrones": "palabra(9) numero(4) simbolo(1) longitud: 14",
+  "patrones": "palabra(9) año(4) simbolo(1) longitud: 14",
   "consejos": [
     { "titulo": "…", "texto": "…" },
     { "titulo": "…", "texto": "…" },
@@ -321,6 +416,32 @@ Extrae la estructura anónima de la contraseña y pide a Gemini tres consejos pa
 ```
 
 Si Gemini no responde (error de red, límite de peticiones, clave incorrecta, más de 15 segundos de espera…), `consejos` llega como `null` y el backend deja un aviso en el registro con el código de error. Si la clave no está configurada, este endpoint devuelve un error 500, pero **el resto de endpoints siguen funcionando**.
+
+### `POST /api/nivelSeguridad/estimar`
+
+Pide al microservicio de Python la estimación de un ataque realista.
+
+**Petición**
+
+```json
+{ "contrasena": "maria1234" }
+```
+
+**Respuesta**
+
+```json
+{
+  "estimacion": {
+    "longitud": 9,
+    "bits": 21.3,
+    "intentosEstimados": 2600000,
+    "segundos": 0.00026,
+    "categoria": "debil"
+  }
+}
+```
+
+Si el estimador no está arrancado, tarda más de 3 segundos o responde con error, `estimacion` llega como `null` y el backend deja un aviso en el registro. *Los valores del ejemplo son ilustrativos.*
 
 ---
 
@@ -348,19 +469,127 @@ Si Gemini no responde (error de red, límite de peticiones, clave incorrecta, m�
 
 En el analizador, una contraseña **común** o que aparezca en **alguna filtración** se muestra como **Insegura**, independientemente de su puntuación.
 
-### Entropía y tiempo estimado (frontend)
+### Estructura anónima (backend)
+
+La contraseña se divide en bloques de caracteres seguidos del mismo tipo (letras, dígitos o símbolos). Cada bloque se clasifica con la **primera** regla que cumpla, en este orden:
+
+| Orden | Tipo | Regla | Ejemplo |
+|---|---|---|---|
+| 1 | `repeticion` | 3 o más veces el mismo carácter, sin distinguir mayúsculas | `aaaa`, `1111`, `!!!` |
+| 2 | `palabra` | Letras | `Barcelona` |
+| 3 | `año` | 4 dígitos entre 1900 y el año siguiente al actual | `2023` |
+| 4 | `numero` | El resto de bloques de dígitos | `7391` |
+| 5 | `simbolo` | Todo lo demás | `!`, `@#` |
+
+El orden importa: `1111` es una **repetición** aunque esté dentro del rango de años. Por ejemplo, `Barcelona2023!` se convierte en `palabra(9) año(4) simbolo(1) longitud: 14`. El resultado solo contiene **tipos y longitudes**, nunca el texto de la contraseña, y es lo único que recibe Gemini.
+
+### Tiempo estimado para descifrarla (frontend)
+
+El analizador compara tres ataques y muestra **el más rápido**, porque es el que usaría un atacante:
+
+| Ataque | Cuándo gana | Tiempo |
+|---|---|---|
+| **Diccionario** | La contraseña es común o está filtrada | Al instante |
+| **Modelo de Markov** (estimador en Python) | La contraseña sigue patrones habituales | `intentos estimados ÷ 10¹⁰ por segundo` |
+| **Fuerza bruta** | La contraseña es realmente aleatoria | `2^entropía ÷ 10¹⁰ por segundo` |
+
+La entropía por fuerza bruta se calcula así:
 
 ```
 entropía = longitud × log₂(tamaño del alfabeto)
 ```
 
-El alfabeto suma 26 (minúsculas), 26 (mayúsculas), 10 (números) y 32 (símbolos) según los tipos que contenga la contraseña. El tiempo estimado supone un ataque de **fuerza bruta a 10 000 millones de intentos por segundo** (una GPU doméstica contra *hashes* rápidos).
+El alfabeto suma 26 (minúsculas), 26 (mayúsculas), 10 (números) y 32 (símbolos) según los tipos que contenga la contraseña. La velocidad de **10 000 millones de intentos por segundo** corresponde a una GPU doméstica contra *hashes* rápidos.
 
-> Esta estimación solo contempla la fuerza bruta pura. Los ataques de diccionario descifran mucho antes las contraseñas basadas en palabras, fechas o patrones conocidos; por eso las contraseñas comunes o filtradas se marcan como descifrables **al instante**.
+Cuando la contraseña es común o está filtrada, el bloque del ataque realista se oculta: el ataque de diccionario ya la saca al instante.
+
+---
+
+## 🐍 Microservicio de estimación en Python
+
+### Objetivo
+
+El cálculo de entropía supone que el atacante prueba combinaciones al azar, pero los atacantes reales prueban primero lo que la gente suele usar. Este microservicio estima **en qué intento adivinaría la contraseña un atacante** que conoce esos hábitos. Por ejemplo, «~2 millones de intentos» frente a «siglos por fuerza bruta».
+
+### Cómo funciona
+
+1. **Datos:** la lista `10-million-password-list-top-1000000.txt` de [SecLists](https://github.com/danielmiessler/SecLists).
+   - Se limpia: se descartan las líneas vacías, las de más de 32 caracteres y las que no son ASCII imprimible.
+   - Se baraja con una semilla fija y se divide en un 90 % para entrenar y un 10 % para evaluar.
+2. **Modelo de Markov de caracteres** (`ngram.py`): cuenta qué carácter sigue a cada contexto de *n* caracteres (orden 3 por defecto).
+   - Usa marcas de inicio y fin, así también aprende cómo suelen empezar y acabar las contraseñas.
+   - Aplica suavizado de Laplace, para que nada tenga probabilidad cero.
+   - La probabilidad se calcula sumando logaritmos, para no perder precisión, y se expresa en **bits** (`−log₂ p`).
+3. **Estimación Monte Carlo** (Dell'Amico y Filippone, 2015):
+   - Al entrenar, se generan 50 000 contraseñas con el propio modelo y se guardan sus probabilidades ordenadas.
+   - El número de intentos de una contraseña con probabilidad `p` es `Σ 1 / (n · pᵢ)`, sumando solo las muestras más probables que ella.
+   - Con sumas acumuladas y búsqueda binaria, cada consulta tarda milisegundos.
+4. **Evaluación:** porcentaje de contraseñas del 10 % de prueba que se adivinarían antes de 10⁶, 10⁹ y 10¹² intentos, comparando distintos órdenes y valores de suavizado.
+
+| Archivo | Función | Cuándo se ejecuta |
+|---|---|---|
+| `ngram.py` | Clase `ModeloMarkov`: entrenamiento, probabilidad, muestreo, estimación y guardado | La usan los otros dos |
+| `entrenar.py` | Limpia los datos, entrena, comprueba cada fase, evalúa y guarda el modelo en `modelo/` | A mano, cuando se quiere reentrenar |
+| `main.py` | Carga el modelo al arrancar y responde a `POST /estimar` | Mientras el servicio está en marcha |
+
+### Entrenamiento
+
+```powershell
+cd servicios/estimador
+.\.venv\Scripts\python.exe entrenar.py                              # orden 3, alpha 0.01, 50 000 muestras
+.\.venv\Scripts\python.exe entrenar.py --limite 100000              # prueba rápida con menos datos
+.\.venv\Scripts\python.exe entrenar.py --comparar                   # compara orden 2/3/4 y alpha 0.001/0.01/0.1
+.\.venv\Scripts\python.exe entrenar.py --orden 4 --alpha 0.001 --muestras 100000
+```
+
+Durante el entrenamiento se imprimen varias comprobaciones: el tamaño de los datos, los caracteres más probables tras `123`, el orden de dificultad de contraseñas conocidas, 20 contraseñas generadas por el modelo (deberían parecer reales) y la curva de adivinación.
+
+### API del microservicio
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/health` | Indica si el modelo está cargado y su orden |
+| `POST` | `/estimar` | Recibe `{ "contrasena": "..." }` (de 1 a 128 caracteres) y devuelve `longitud`, `bits`, `intentos_estimados`, `segundos` y `categoria` |
+
+Las categorías se asignan por número de intentos:
+
+| Intentos | Categoría |
+|---|---|
+| < 10⁶ | muy débil |
+| < 10⁹ | débil |
+| < 10¹² | aceptable |
+| < 10¹⁵ | fuerte |
+| ≥ 10¹⁵ | muy fuerte |
+
+Con el servicio en marcha en local, la documentación interactiva está en `http://127.0.0.1:8000/docs`.
+
+### Privacidad
+
+- El servicio recibe la contraseña completa, así que **nunca es accesible desde fuera**: en local escucha en `127.0.0.1` y en Docker no publica ningún puerto.
+- No tiene CORS, porque el navegador nunca habla con él.
+- No registra ni guarda la contraseña en ningún caso.
+- El backend lo usa a través de la interfaz `IEstimadorService` con un tiempo máximo de 3 segundos. Si no responde, el analizador solo muestra el cálculo por fuerza bruta.
 
 ---
 
 ## 🧪 Pruebas
+
+### Microservicio de estimación
+
+```powershell
+cd servicios/estimador
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Las pruebas entrenan un modelo pequeño en memoria, así que no necesitan la lista de un millón de contraseñas. Comprueban que:
+
+- una contraseña típica tiene menos bits y menos intentos que una aleatoria;
+- un carácter nunca visto no da probabilidad cero;
+- el muestreo es reproducible con la misma semilla;
+- el modelo se guarda y se carga sin cambiar los resultados;
+- la API responde con la forma esperada, devuelve 422 ante peticiones inválidas y 503 si el modelo no está cargado.
+
+### Backend
 
 El proyecto `backend/tests/PasswordGuard.Api.Tests` está preparado con **xUnit**, **NSubstitute** y **Microsoft.AspNetCore.Mvc.Testing**, pero **todavía no contiene pruebas**.
 
@@ -369,7 +598,7 @@ cd backend
 dotnet test
 ```
 
-El servicio de IA se usa a través de la interfaz `IConsejosIAService`, así que en las pruebas puede sustituirse por un doble con NSubstitute sin llamar a Gemini.
+Los servicios de IA y del estimador se usan a través de interfaces (`IConsejosIAService` e `IEstimadorService`), así que en las pruebas pueden sustituirse por dobles con NSubstitute sin llamar a Gemini ni a Python.
 
 ---
 
@@ -382,7 +611,7 @@ El repositorio sigue un flujo basado en **Git Flow**:
 | `main` | Versiones estables |
 | `release` | Preparación de versiones |
 | `develop` | Integración de las funcionalidades terminadas |
-| `feature/*` | Una rama por funcionalidad (por ejemplo, `feature/generadorContraseña`, `feature/comprobacionFiltraciones`, `feature/consejosIA`) |
+| `feature/*` | Una rama por funcionalidad: `feature/generadorContraseña`, `feature/comprobacionFiltraciones`, `feature/consejosIA`, `feature/reconocimientoPatrones` y `feature/estimacionPython` |
 
 Las funcionalidades se integran en `develop` mediante *Pull Requests*.
 
@@ -390,18 +619,27 @@ Las funcionalidades se integran en `develop` mediante *Pull Requests*.
 
 ## ⚠️ Limitaciones conocidas
 
+- **El modelo de Markov no entiende estructuras**: ve la contraseña carácter a carácter, con solo 3 caracteres de memoria, así que no sabe que `Barcelona` es una palabra ni que `2023` es un año. Por eso subestima lo predecibles que son contraseñas como `Barcelona2023!` cuando no están filtradas. Una herramienta como hashcat, con diccionario y reglas, las sacaría mucho antes.
+- **Datos de entrenamiento**: la lista de SecLists es sobre todo de usuarios angloparlantes y no incluye frecuencias; cada contraseña cuenta una sola vez. Puede subestimar contraseñas en español.
+- **El modelo se guarda con `pickle`**, que solo es seguro con archivos propios: nunca cargues un `modelo.pkl.gz` de origen desconocido.
 - **Aleatoriedad del generador**: el generador usa `Math.random()`, que **no es criptográficamente seguro**. Para contraseñas reales debería usar `crypto.getRandomValues()`.
 - **Tipos de carácter no garantizados**: con longitudes cortas, la contraseña generada puede no incluir todos los tipos activos, porque cada carácter se elige al azar.
 - **Textos de privacidad pendientes de revisar**: el distintivo «100% local» de la cabecera y algunos textos del generador indican que la contraseña no sale del navegador, pero el nivel de seguridad se calcula en la API.
-- **Estructura básica**: la estructura anónima distingue palabras, números y símbolos, pero todavía no detecta años, fechas, secuencias (`1234`), repeticiones (`aaaa`), patrones de teclado (`qwerty`) ni *leetspeak* (`P@ssw0rd`).
-- **Sin pruebas automáticas** todavía.
+- **Estructura incompleta**: la estructura anónima detecta palabras, números, símbolos, años y repeticiones de un mismo carácter, pero todavía no detecta fechas completas (`15031995`), secuencias (`1234`), grupos repetidos (`abcabc`), patrones de teclado (`qwerty`) ni *leetspeak* (`P@ssw0rd`).
+- **Sin pruebas automáticas en el backend** todavía.
 - El archivo `PasswordGuard.Api.http` conserva la petición de ejemplo de la plantilla (`/weatherforecast`), que ya no existe.
 
 ---
 
 ## 🗺️ Hoja de ruta
 
-- [ ] Detectar años, fechas, secuencias, repeticiones, patrones de teclado y *leetspeak* en la estructura anónima
+- [x] Detectar años y repeticiones en la estructura anónima
+- [x] Microservicio de estimación: entrenar y evaluar el modelo de Markov
+- [x] Microservicio de estimación: API con FastAPI, pruebas con pytest e integración con el backend y el frontend
+- [x] Docker Compose para arrancar frontend, backend y microservicio con un solo comando
+- [ ] Añadir un modelo **PCFG** al estimador que aproveche la estructura anónima (`palabra + año + símbolo`) y quedarse con la estimación más baja
+- [ ] Mejorar el modelo de Markov con *backoff* y entrenarlo también con contraseñas en español
+- [ ] Detectar fechas, secuencias, grupos repetidos, patrones de teclado y *leetspeak*
 - [ ] Usar `crypto.getRandomValues()` en el generador y garantizar al menos un carácter de cada tipo elegido
 - [ ] Añadir pruebas unitarias de los servicios y pruebas de integración de la API
 - [ ] Guardar en caché los consejos de la IA por estructura para reducir llamadas

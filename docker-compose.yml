@@ -1,0 +1,37 @@
+# PasswordGuard completo con un solo comando:
+#   docker compose up --build
+# y se abre en http://localhost:8080
+#
+# Antes del primer arranque hay que entrenar el modelo una vez:
+#   cd servicios/estimador && python entrenar.py
+
+services:
+  estimador:
+    build: ./servicios/estimador
+    volumes:
+      # Modelo entrenado fuera del contenedor, montado en solo lectura
+      - ./servicios/estimador/modelo:/app/modelo:ro
+    # Sin "ports": solo accesible desde la red interna, nunca desde fuera
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+
+  backend:
+    build: ./backend/src/PasswordGuard.Api
+    # Gemini__ApiKey (y Gemini__Model si lo tienes) salen de tu .env, que nunca entra en la imagen
+    env_file: ./backend/src/PasswordGuard.Api/.env
+    environment:
+      - Estimador__Url=http://estimador:8000
+    depends_on:
+      - estimador
+    # Sin "ports": el navegador llega a través del proxy de nginx
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
