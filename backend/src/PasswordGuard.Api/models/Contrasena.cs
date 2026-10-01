@@ -1,4 +1,4 @@
-using System.Data;
+using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -22,11 +22,11 @@ namespace passwordGuard.Api.models
                 {
                     sb.Append($"{tipo[0]}({trozo.Length}) ");
                 }
-                else if (trozo.Length == 8 && int.TryParse(trozo.Value, out int valor) && valor >= 01011900 && valor <= DateTime.Now.Year + 1)
+                else if (trozo.Length == 8 && EsFecha(trozo.Value))
                 {
                     sb.Append($"{tipo[5]}({trozo.Length}) ");
                 }
-                else if (trozo.Length == 4 && int.TryParse(trozo.Value, out int valo) && valo >= 1900 && valo <= DateTime.Now.Year + 1)
+                else if (trozo.Length == 4 && int.TryParse(trozo.Value, out int valor) && valor >= 1900 && valor <= DateTime.Now.Year + 1)
                 {
                     sb.Append($"{tipo[2]}({trozo.Length}) ");
                 }
@@ -41,6 +41,17 @@ namespace passwordGuard.Api.models
             }
             sb.Append("longitud: " + contrasena.Length);
             return sb.ToString();
+        }
+
+        // Formatos de fecha más habituales en contraseñas: 15031995 (día-mes-año) y 19950315 (año-mes-día)
+        static readonly string[] FormatosFecha = { "ddMMyyyy", "yyyyMMdd" };
+
+        // TryParseExact descarta fechas imposibles (31 de febrero, mes 13...), así que basta con comprobar el año
+        static bool EsFecha(string digitos)
+        {
+            return DateTime.TryParseExact(digitos, FormatosFecha, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime fecha)
+                && fecha.Year >= 1900
+                && fecha.Year <= DateTime.Now.Year + 1;
         }
     }
 }
