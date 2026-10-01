@@ -45,11 +45,11 @@ Todo el proyecto se levanta con un solo comando gracias a **Docker Compose**.
 Escribe o pega una contraseña y obtendrás:
 
 - **Fortaleza**: nivel de 1 a 4 (*Débil*, *Media*, *Fuerte*, *Muy fuerte* o *Insegura*), entropía, número de combinaciones posibles y **tiempo estimado para descifrarla**.
-- **Ataque realista**: cuántos intentos necesitaría un atacante que prueba primero lo que suele usar la gente, según un **modelo de Markov entrenado con un millón de contraseñas filtradas**, frente a lo que tardaría la fuerza bruta.
+- **Comparativa de ataques**: diccionario, patrones habituales y fuerza bruta, ordenados del más rápido al más lento, con barras en escala logarítmica y el ataque ganador destacado. Los patrones habituales los estima un **modelo de Markov entrenado con un millón de contraseñas filtradas**.
 - **Desglose de la composición**: longitud, mayúsculas y minúsculas combinadas, números y símbolos.
 - **Contraseñas comunes**: comprobación contra una lista de las **10 000 contraseñas más usadas**.
 - **Filtraciones**: cuántas veces aparece la contraseña en filtraciones públicas según **Have I Been Pwned**, usando *k-anonymity*.
-- **Patrones y consejos con IA**: la estructura anónima de la contraseña, que detecta **palabras, números, símbolos, años y repeticiones** (por ejemplo, `Palabra · 9 + Año · 4 + Símbolo · 1`), y tres consejos personalizados generados por **Gemini**. Si la IA no está disponible, se muestran consejos generales.
+- **Patrones y consejos con IA**: la estructura anónima de la contraseña, que detecta **palabras, números, símbolos, años, fechas y repeticiones** (por ejemplo, `Palabra · 9 + Año · 4 + Símbolo · 1`), y tres consejos personalizados generados por **Gemini**. Si la IA no está disponible, se muestran consejos generales.
 - **Pruebas rápidas** con contraseñas de ejemplo y botón para mostrar u ocultar la contraseña.
 
 El tiempo mostrado es el del **ataque que antes funcionaría**:
@@ -113,7 +113,7 @@ Password Guard **no guarda ninguna contraseña**: no hay base de datos, ni cooki
 **Pruebas**
 
 - [pytest](https://docs.pytest.org/) y el `TestClient` de FastAPI para el microservicio
-- [xUnit](https://xunit.net/), [NSubstitute](https://nsubstitute.github.io/) y `Microsoft.AspNetCore.Mvc.Testing` para el backend (proyecto preparado)
+- [xUnit](https://xunit.net/), [NSubstitute](https://nsubstitute.github.io/) y `Microsoft.AspNetCore.Mvc.Testing` para el backend, con pruebas unitarias y de integración
 
 **Servicios externos**
 
@@ -190,7 +190,14 @@ passwordGuard/
 │   │   ├── Program.cs                        # Arranque y registro de servicios
 │   │   ├── Dockerfile
 │   │   └── .env                              # Clave de Gemini (no se sube a Git)
-│   └── tests/PasswordGuard.Api.Tests/        # Proyecto de pruebas (xUnit)
+│   └── tests/PasswordGuard.Api.Tests/        # Pruebas con xUnit
+│       ├── Helpers/ManejadorHttpFalso.cs     # Sustituye a la red en las pruebas de clientes HTTP
+│       ├── ContrasenaTests.cs                # Estructura anónima
+│       ├── ContrasenasComunesServiceTests.cs
+│       ├── ComprobarContrasenaServiceTests.cs
+│       ├── GeminiServiceTests.cs
+│       ├── EstimadorServiceTests.cs
+│       └── NivelSeguridadControllerTests.cs  # Integración: la API completa en memoria
 ├── servicios/
 │   └── estimador/                            # Microservicio en Python
 │       ├── ngram.py                          # Modelo de Markov y estimación Monte Carlo
@@ -477,11 +484,14 @@ La contraseña se divide en bloques de caracteres seguidos del mismo tipo (letra
 |---|---|---|---|
 | 1 | `repeticion` | 3 o más veces el mismo carácter, sin distinguir mayúsculas | `aaaa`, `1111`, `!!!` |
 | 2 | `palabra` | Letras | `Barcelona` |
-| 3 | `año` | 4 dígitos entre 1900 y el año siguiente al actual | `2023` |
-| 4 | `numero` | El resto de bloques de dígitos | `7391` |
-| 5 | `simbolo` | Todo lo demás | `!`, `@#` |
+| 3 | `fecha` | 8 dígitos que forman una fecha real (`ddMMyyyy` o `yyyyMMdd`) con el año entre 1900 y el siguiente al actual | `15031995`, `19950315` |
+| 4 | `año` | 4 dígitos entre 1900 y el año siguiente al actual | `2023` |
+| 5 | `numero` | El resto de bloques de dígitos | `7391`, `32011995` |
+| 6 | `simbolo` | Todo lo demás | `!`, `@#` |
 
-El orden importa: `1111` es una **repetición** aunque esté dentro del rango de años. Por ejemplo, `Barcelona2023!` se convierte en `palabra(9) año(4) simbolo(1) longitud: 14`. El resultado solo contiene **tipos y longitudes**, nunca el texto de la contraseña, y es lo único que recibe Gemini.
+Las fechas se validan de verdad: `32011995` (día 32), `15131995` (mes 13) o `29022023` (29 de febrero en año no bisiesto) se quedan en `numero`.
+
+El orden importa: `1111` es una **repetición** aunque esté dentro del rango de años, y `11111111` es una repetición antes que una fecha. Por ejemplo, `Barcelona2023!` se convierte en `palabra(9) año(4) simbolo(1) longitud: 14`. El resultado solo contiene **tipos y longitudes**, nunca el texto de la contraseña, y es lo único que recibe Gemini.
 
 ### Tiempo estimado para descifrarla (frontend)
 
@@ -501,7 +511,9 @@ entropía = longitud × log₂(tamaño del alfabeto)
 
 El alfabeto suma 26 (minúsculas), 26 (mayúsculas), 10 (números) y 32 (símbolos) según los tipos que contenga la contraseña. La velocidad de **10 000 millones de intentos por segundo** corresponde a una GPU doméstica contra *hashes* rápidos.
 
-Cuando la contraseña es común o está filtrada, el bloque del ataque realista se oculta: el ataque de diccionario ya la saca al instante.
+El tiempo principal es siempre el del ataque más rápido. Debajo, la **comparativa de ataques** muestra cada uno con su tiempo y una barra en escala logarítmica (de 1 milisegundo a unos 30 000 años), ordenados del más rápido al más lento, con el ganador marcado como «Más rápido». Las barras son rojas por debajo de una hora, ámbar por debajo de un año y verdes a partir de ahí.
+
+La comparativa solo aparece si hay más de un ataque posible: si el estimador no está arrancado y la contraseña no es común ni está filtrada, solo queda la fuerza bruta, que ya muestra el tiempo principal.
 
 ---
 
@@ -591,14 +603,23 @@ Las pruebas entrenan un modelo pequeño en memoria, así que no necesitan la lis
 
 ### Backend
 
-El proyecto `backend/tests/PasswordGuard.Api.Tests` está preparado con **xUnit**, **NSubstitute** y **Microsoft.AspNetCore.Mvc.Testing**, pero **todavía no contiene pruebas**.
-
 ```bash
 cd backend
 dotnet test
 ```
 
-Los servicios de IA y del estimador se usan a través de interfaces (`IConsejosIAService` e `IEstimadorService`), así que en las pruebas pueden sustituirse por dobles con NSubstitute sin llamar a Gemini ni a Python.
+El proyecto `backend/tests/PasswordGuard.Api.Tests` usa **xUnit**, **NSubstitute** y **Microsoft.AspNetCore.Mvc.Testing**. Ninguna prueba sale a la red: Gemini y el estimador se sustituyen por un manejador HTTP falso o por dobles de NSubstitute.
+
+| Archivo | Qué comprueba |
+|---|---|
+| `ContrasenaTests` | Cada tipo de bloque, los límites de años y fechas, fechas imposibles, el orden de las reglas y que la estructura **nunca incluye el texto de la contraseña** |
+| `ContrasenasComunesServiceTests` | La lista de 10 000 contraseñas, sin distinguir mayúsculas |
+| `ComprobarContrasenaServiceTests` | Cada requisito, los tipos que elige el usuario, la puntuación de 0 a 7 y los límites de cada nivel |
+| `GeminiServiceTests` | La clave **en la cabecera y no en la URL**, que solo se envía la estructura, el modelo configurado y `null` ante errores (400, 403, 404, 429), respuestas vacías, texto que no es JSON, falta de red o timeout |
+| `EstimadorServiceTests` | La lectura de la respuesta de Python en *snake_case*, `null` si el servicio falla, no está arrancado, tarda demasiado o devuelve un JSON roto, y que propaga la cancelación del cliente |
+| `NivelSeguridadControllerTests` | **Integración** con `WebApplicationFactory`: los cuatro endpoints, que a la IA **solo le llega la estructura anónima**, las respuestas `null` cuando fallan los servicios y el 400 sin contraseña |
+
+Para que `WebApplicationFactory<Program>` pueda arrancar la API, `Program.cs` termina con `public partial class Program { }`.
 
 ---
 
@@ -625,8 +646,8 @@ Las funcionalidades se integran en `develop` mediante *Pull Requests*.
 - **Aleatoriedad del generador**: el generador usa `Math.random()`, que **no es criptográficamente seguro**. Para contraseñas reales debería usar `crypto.getRandomValues()`.
 - **Tipos de carácter no garantizados**: con longitudes cortas, la contraseña generada puede no incluir todos los tipos activos, porque cada carácter se elige al azar.
 - **Textos de privacidad pendientes de revisar**: el distintivo «100% local» de la cabecera y algunos textos del generador indican que la contraseña no sale del navegador, pero el nivel de seguridad se calcula en la API.
-- **Estructura incompleta**: la estructura anónima detecta palabras, números, símbolos, años y repeticiones de un mismo carácter, pero todavía no detecta fechas completas (`15031995`), secuencias (`1234`), grupos repetidos (`abcabc`), patrones de teclado (`qwerty`) ni *leetspeak* (`P@ssw0rd`).
-- **Sin pruebas automáticas en el backend** todavía.
+- **Estructura incompleta**: la estructura anónima detecta palabras, números, símbolos, años, fechas de 8 dígitos y repeticiones de un mismo carácter, pero todavía no detecta fechas cortas o con separadores (`150395`, `15-03-1995`), secuencias (`1234`), grupos repetidos (`abcabc`), patrones de teclado (`qwerty`) ni *leetspeak* (`P@ssw0rd`).
+- **Contraseñas cortas en el modelo**: el modelo de Markov puede estimar más tiempo que la propia fuerza bruta en contraseñas cortas (por ejemplo, 6 minúsculas). La comparativa lo deja a la vista, porque en ese caso gana la fuerza bruta.
 - El archivo `PasswordGuard.Api.http` conserva la petición de ejemplo de la plantilla (`/weatherforecast`), que ya no existe.
 
 ---
@@ -634,14 +655,17 @@ Las funcionalidades se integran en `develop` mediante *Pull Requests*.
 ## 🗺️ Hoja de ruta
 
 - [x] Detectar años y repeticiones en la estructura anónima
+- [x] Detectar fechas de 8 dígitos (`ddMMyyyy` y `yyyyMMdd`)
+- [x] Comparativa de ataques en el analizador
+- [x] Pruebas unitarias de los servicios y pruebas de integración de la API
 - [x] Microservicio de estimación: entrenar y evaluar el modelo de Markov
 - [x] Microservicio de estimación: API con FastAPI, pruebas con pytest e integración con el backend y el frontend
 - [x] Docker Compose para arrancar frontend, backend y microservicio con un solo comando
 - [ ] Añadir un modelo **PCFG** al estimador que aproveche la estructura anónima (`palabra + año + símbolo`) y quedarse con la estimación más baja
 - [ ] Mejorar el modelo de Markov con *backoff* y entrenarlo también con contraseñas en español
-- [ ] Detectar fechas, secuencias, grupos repetidos, patrones de teclado y *leetspeak*
+- [ ] Detectar fechas cortas o con separadores, secuencias, grupos repetidos, patrones de teclado y *leetspeak*
 - [ ] Usar `crypto.getRandomValues()` en el generador y garantizar al menos un carácter de cada tipo elegido
-- [ ] Añadir pruebas unitarias de los servicios y pruebas de integración de la API
+- [ ] Pruebas del frontend (componentes de Vue)
 - [ ] Guardar en caché los consejos de la IA por estructura para reducir llamadas
 - [ ] Revisar y unificar los textos de privacidad
 - [ ] Configurar CORS para desplegar frontend y backend por separado
