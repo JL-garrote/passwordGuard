@@ -109,6 +109,49 @@ const tiempoDescifrado = computed(() => {
   );
 });
 
+// Comparativa: cada ataque con su tiempo, del más rápido al más lento. El primero es el que decide el veredicto
+type Ataque = { id: string; nombre: string; detalle: string; segundos: number };
+
+const ataques = computed<Ataque[]>(() => {
+  const lista: Ataque[] = [];
+  if (esComun.value || filtrada.value) {
+    lista.push({
+      id: 'diccionario',
+      nombre: 'Diccionario',
+      detalle: esComun.value ? 'Está entre las 10.000 contraseñas más usadas' : 'Aparece en filtraciones públicas',
+      segundos: 0,
+    });
+  }
+  if (estimacion.value) {
+    lista.push({
+      id: 'patrones',
+      nombre: 'Patrones habituales',
+      detalle: `Modelo entrenado con contraseñas filtradas · ~${estimacion.value.intentosEstimados.toExponential(1)} intentos`,
+      segundos: estimacion.value.segundos,
+    });
+  }
+  lista.push({
+    id: 'fuerza-bruta',
+    nombre: 'Fuerza bruta',
+    detalle: `Todas las combinaciones · ${entropia.value.toFixed(1)} bits de entropía`,
+    segundos: segundosFuerzaBruta.value,
+  });
+  return lista.sort((a, b) => a.segundos - b.segundos);
+});
+
+// Barra en escala logarítmica: de 1 milisegundo (vacía) a ~30.000 años (llena)
+function anchoBarra(segundos: number) {
+  const posicion = (Math.log10(Math.max(segundos, 1e-3)) + 3) / 15;
+  return `${Math.min(100, Math.max(3, posicion * 100))}%`;
+}
+
+// Mismo código de colores que el medidor: menos de una hora es grave, menos de un año preocupante
+function claseTiempo(segundos: number) {
+  if (segundos < 3600) return 'debil';
+  if (segundos < 31_536_000) return 'aceptable';
+  return 'fuerte';
+}
+
 // Nivel de seguridad: lo calcula el backend (incluye la lista de contraseñas comunes)
 const NIVELES_SERVIDOR: Record<string, { n: number; etiqueta: string; clase: string }> = {
   'Débil': { n: 1, etiqueta: 'Débil', clase: 'debil' },
@@ -426,7 +469,7 @@ onBeforeUnmount(() => {
             </span>
             <div>
               <h2>Fortaleza de la contraseña</h2>
-              <p class="texto-suave">Estimación de su resistencia ante ataques de fuerza bruta</p>
+              <p class="texto-suave">Estimación de su resistencia ante distintos tipos de ataque</p>
             </div>
           </div>
           <span class="badge" :class="nivel.clase">{{ nivel.etiqueta }} (Nivel {{ nivel.n }})</span>
@@ -464,18 +507,29 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <!-- Solo si el microservicio de Python está arrancado y no hay ya un ataque de diccionario que la saque al instante -->
-        <div v-if="estimacion && !esComun && !filtrada" class="tiempo realista">
-          <div>
-            <span class="etiqueta-mayus">Con un ataque realista</span>
-            <div class="tiempo-valor">Se descifraría {{ formatearTiempo(estimacion.segundos) }}</div>
-            <span class="texto-suave">
-              probando primero lo que suele usar la gente, según un modelo entrenado con millones de contraseñas filtradas.
-            </span>
+        <!-- Comparativa de ataques: solo tiene sentido si hay más de uno (diccionario o el microservicio de Python) -->
+        <div v-if="ataques.length > 1" class="ataques">
+          <div class="ataques-cabecera">
+            <span class="etiqueta-mayus">Comparativa de ataques</span>
+            <span class="texto-suave">Escala logarítmica · el atacante usa el más rápido</span>
           </div>
-          <div class="metricas">
-            <span class="mono">{{ estimacion.bits.toFixed(1) }} bits según el modelo</span>
-            <span class="mono texto-suave">~{{ estimacion.intentosEstimados.toExponential(1) }} intentos</span>
+          <div
+            v-for="(a, i) in ataques"
+            :key="a.id"
+            class="ataque"
+            :class="{ ganador: i === 0 }"
+          >
+            <div class="ataque-fila">
+              <span class="ataque-nombre">
+                {{ a.nombre }}
+                <span v-if="i === 0" class="etiqueta-ganador">Más rápido</span>
+              </span>
+              <span class="ataque-tiempo mono">{{ formatearTiempo(a.segundos) }}</span>
+            </div>
+            <div class="ataque-barra" aria-hidden="true">
+              <span :class="claseTiempo(a.segundos)" :style="{ width: anchoBarra(a.segundos) }"></span>
+            </div>
+            <span class="texto-suave">{{ a.detalle }}</span>
           </div>
         </div>
 
@@ -953,9 +1007,83 @@ p {
   border-radius: 0.75rem;
   background: var(--subtle);
 }
-/* Mismo bloque que el de fuerza bruta, con un borde para distinguirlo */
-.tiempo.realista {
-  box-shadow: inset 3px 0 0 var(--tertiary);
+/* Comparativa de ataques */
+.ataques {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: var(--subtle);
+}
+.ataques-cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+.ataque {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  opacity: 0.75;
+}
+.ataque.ganador {
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+  opacity: 1;
+}
+.ataque-fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.ataque-nombre {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+.ataque-tiempo {
+  font-size: 13px;
+  font-weight: 600;
+}
+.etiqueta-ganador {
+  padding: 2px 0.5rem;
+  border-radius: 999px;
+  background: var(--error-container);
+  color: var(--on-error-container);
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ataque-barra {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted);
+  overflow: hidden;
+}
+.ataque-barra span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s;
+}
+.ataque-barra span.debil {
+  background: var(--error);
+}
+.ataque-barra span.aceptable {
+  background: var(--tertiary);
+}
+.ataque-barra span.fuerte {
+  background: var(--secondary);
 }
 .tiempo-valor {
   margin: 2px 0;
@@ -1249,6 +1377,7 @@ p {
   .btn-icono,
   .pastilla,
   .medidor span,
+  .ataque-barra span,
   .btn-primario {
     transition: none;
   }
