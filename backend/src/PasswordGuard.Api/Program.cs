@@ -14,6 +14,13 @@ builder.Services.AddScoped<comprobarContrasenaService>();
 builder.Services.AddSingleton<contrasenasComunesService>();
 // AddHttpClient le pasa a GeminiService un HttpClient gestionado por ASP.NET
 builder.Services.AddHttpClient<IConsejosIAService, GeminiService>(client => client.Timeout = TimeSpan.FromSeconds(15));
+// Microservicio de Python: timeout corto porque es opcional y no debe frenar la respuesta
+builder.Services.AddHttpClient<IEstimadorService, EstimadorService>(client =>
+{
+    string url = builder.Configuration["Estimador:Url"] ?? "http://127.0.0.1:8000";
+    client.BaseAddress = new Uri(url.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(3);
+});
 // Contrasena no guarda estado, así que una sola instancia sirve para todas las peticiones
 builder.Services.AddSingleton<Contrasena>();
 
@@ -32,3 +39,6 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+// Permite que las pruebas de integración levanten la API con WebApplicationFactory<Program>
+public partial class Program { }
